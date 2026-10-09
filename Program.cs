@@ -4,6 +4,11 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var hosting = new RenderHosting(builder.Configuration);
+var ownerOnly = hosting.IsPublic && string.Equals(builder.Configuration["MarketData:Provider"], "Marketstack", StringComparison.OrdinalIgnoreCase);
+var ownerUser = builder.Configuration["Hosting:OwnerUser"] ?? "owner";
+var ownerPassword = builder.Configuration["Hosting:OwnerPassword"] ?? "";
+if (ownerOnly && ownerPassword.Length < 12)
+    throw new InvalidOperationException("The hosted personal version requires Hosting__OwnerPassword with at least 12 characters. Set it in Render Environment, never in GitHub.");
 if (hosting.IsPublic)
 {
     var host = hosting.PublicHost;
@@ -27,6 +32,10 @@ builder.Services.AddSingleton<ImportService>();
 builder.Services.AddSingleton<BacktestService>();
 builder.Services.AddMemoryCache(options => options.SizeLimit = 128);
 builder.Services.AddSingleton<PublicMarketDataProvider>();
+builder.Services.AddSingleton<MarketstackDataProvider>();
+builder.Services.AddSingleton<MarketDataProvider>();
+builder.Logging.AddFilter("System.Net.Http.HttpClient.Marketstack", LogLevel.None);
+builder.Services.AddHttpClient("Marketstack", client => { client.BaseAddress = new Uri("https://api.marketstack.com/"); client.Timeout = TimeSpan.FromSeconds(25); }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
 builder.Services.AddSingleton<AiExplanationService>();
 builder.Services.AddHttpClient("PublicMarketData", client =>
 {
@@ -61,6 +70,16 @@ app.Use(async (context, next) =>
     context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
     // Render terminates HTTPS at its edge; do not redirect internal HTTP and cause a proxy loop.
     if (hosting.IsPublic) context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000";
+    if (ownerOnly && context.Request.Path != "/health" &&
+        !OwnerAccess.Accepts(context.Request.Headers.Authorization.ToString(), ownerUser, ownerPassword))
+    {
+        context.Response.StatusCode = 401;
+        context.Response.Headers["WWW-Authenticate"] = "Basic realm=\"MarketLens personal research\", charset=\"UTF-8\"";
+        context.Response.Headers["Cache-Control"] = "no-store";
+        await context.Response.WriteAsync("Sign in with your website owner credentials. This is not a brokerage login.");
+        return;
+    }
+    if (ownerOnly) context.Response.Headers["Cache-Control"] = "private, no-store";
     await next();
 });
 app.UseExceptionHandler("/Error");

@@ -225,6 +225,60 @@ Check("Public dataset cache writes no files and rejects visitor imports", () =>
     Assert(restarted.Read(data.Symbol) is null, "Restart unexpectedly depended on persistent data.");
 });
 
+Check("Marketstack search is local and missing owner key sends no requests", () =>
+{
+    var handler = new FakeMarketstackHandler();
+    var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
+        new ConfigurationBuilder().Build());
+    Assert(provider.SearchAsync("Apple", default).GetAwaiter().GetResult().Single().Symbol == "US.AAPL", "Catalogue search failed.");
+    Reject(() => provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult());
+    Reject(() => provider.FetchAsync("MY.1155", default).GetAwaiter().GetResult());
+    Assert(handler.Requests == 0, "Unconfigured or unsupported fetch sent a request.");
+});
+Check("Marketstack adjusted daily prices preserve US trading dates", () =>
+{
+    using var doc = JsonDocument.Parse(FakeMarketstackHandler.Payload());
+    var company = new CompanySearchResult("US.AAPL", "AAPL", "Apple", "NASDAQ");
+    var data = MarketstackDataProvider.Parse(doc.RootElement, company, now);
+    Assert(data.SplitAdjusted && data.Daily.Length == 120 && data.Fundamentals is null && data.Quote is null, "Daily-only mapping is wrong.");
+    Assert(DataValidation.LocalTime(data.Symbol, data.Daily[^1].Time).Date == now.AddDays(-1).Date, "UTC midnight shifted the trading day.");
+    Assert(engine.Evaluate(data, "swing", false).Signal == "Hold", "Adjusted daily history failed analysis.");
+    Assert(engine.Evaluate(data, "day", false).Signal == "Insufficient data", "Daily data generated an intraday signal.");
+});
+Check("Marketstack refuses mismatched symbols and abstains on unadjusted history", () =>
+{
+    using var doc = JsonDocument.Parse(FakeMarketstackHandler.Payload(adjusted: false));
+    var company = new CompanySearchResult("US.AAPL", "AAPL", "Apple", "NASDAQ");
+    var data = MarketstackDataProvider.Parse(doc.RootElement, company, now);
+    Assert(!data.SplitAdjusted && engine.Evaluate(data, "swing", false).Signal == "Insufficient data", "Raw bars generated a signal.");
+    Reject(() => MarketstackDataProvider.Parse(doc.RootElement, company with { ProviderSymbol = "MSFT" }, now));
+});
+Check("Marketstack caches prices and avoids additional metadata requests", () =>
+{
+    var handler = new FakeMarketstackHandler();
+    var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+    var first = provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult();
+    provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult();
+    Assert(handler.Requests == 1 && first.Daily.Length == 120, "Cached history used additional quota.");
+});
+Check("Marketstack quota responses pause requests without revealing a key", () =>
+{
+    var handler = new FakeMarketstackHandler { Status = HttpStatusCode.TooManyRequests };
+    var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+    Reject(() => provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult());
+    Reject(() => provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult());
+    Assert(handler.Requests == 1, "Provider retried immediately after a quota response.");
+});
+Check("Owner-only access rejects missing, malformed and incorrect credentials", () =>
+{
+    var header = "Basic " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("owner:fixture-password-123"));
+    Assert(OwnerAccess.Accepts(header, "owner", "fixture-password-123"), "Correct owner login rejected.");
+    Assert(!OwnerAccess.Accepts(header, "owner", "wrong-password"), "Incorrect password accepted.");
+    Assert(!OwnerAccess.Accepts("Basic %invalid", "owner", "fixture-password-123") && !OwnerAccess.Accepts("", "owner", "fixture-password-123"), "Malformed credentials accepted.");
+});
+
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);
@@ -274,4 +328,23 @@ sealed class CheckEnvironment : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
     public string WebRootPath { get; set; } = "";
     public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
     public Microsoft.Extensions.FileProviders.IFileProvider WebRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+}
+
+sealed class FakeMarketstackHandler : HttpMessageHandler
+{
+    public int Requests { get; private set; }
+    public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
+    public static string Payload(bool adjusted = true) => JsonSerializer.Serialize(new { data = Enumerable.Range(0, 120).Select(i => new
+    {
+        symbol = "AAPL", exchange = "XNAS", date = new DateTime(2026, 10, 8).AddDays(-i).ToString("yyyy-MM-dd") + "T00:00:00+0000",
+        open = 10m, high = 10.1m, low = 9.9m, close = 10m, volume = 1000m,
+        adj_open = adjusted ? (decimal?)10 : null, adj_high = adjusted ? (decimal?)10.1m : null,
+        adj_low = adjusted ? (decimal?)9.9m : null, adj_close = adjusted ? (decimal?)10 : null
+    }) });
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        if (!request.RequestUri!.AbsolutePath.EndsWith("/v2/eod") || !request.RequestUri.Query.Contains("limit=1000")) throw new Exception("Unexpected Marketstack endpoint.");
+        return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(Payload()) });
+    }
 }

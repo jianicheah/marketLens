@@ -5,8 +5,9 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace MarketLens.Pages;
 
 [RequestSizeLimit(4 * 1024 * 1024)]
-public class DataModel(ImportService import, DatasetStore store) : PageModel
+public class DataModel(ImportService import, DatasetStore store, MarketDataProvider provider) : PageModel
 {
+    public bool UsesMarketstack => provider.UsesMarketstack;
     public bool IsPublic => store.IsPublic;
     [BindProperty] public IFormFile? Upload { get; set; }
     [BindProperty] public string Symbol { get; set; } = "US.AAPL";

@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace MarketLens.Pages;
 
-public class IndexModel(DatasetStore store, PublicMarketDataProvider marketData, AnalysisService analysis,
+public class IndexModel(DatasetStore store, MarketDataProvider marketData, AnalysisService analysis,
     BacktestService backtest, AiExplanationService ai, TimeProvider clock) : PageModel
 {
     [BindProperty(SupportsGet = true)] public string? Symbol { get; set; }
@@ -21,6 +21,7 @@ public class IndexModel(DatasetStore store, PublicMarketDataProvider marketData,
     public Recommendation? Result { get; private set; }
     public BacktestResult? Backtest { get; private set; }
     public AiExplanation? Ai { get; private set; }
+    public bool DailyOnly => marketData.UsesMarketstack;
     public bool AiEnabled => ai.Enabled;
     public string[] Symbols { get; private set; } = [];
     public CompanySearchResult[] Companies { get; private set; } = [];

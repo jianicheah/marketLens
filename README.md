@@ -1,3 +1,7 @@
+# Current data source: Marketstack personal starter version
+
+See [Marketstack-setup.md](Marketstack-setup.md) to configure the owner API key and website password on Render before pushing this update. Daily data only; 10 US stocks, 100 monthly requests. All 34 checks passed using response fixtures; live Marketstack retrieval has not yet been verified. Earlier Yahoo features below describe the optional legacy connector selected only with MarketData:Provider=Yahoo.
+
 # Render Free deployment
 
 See [Deploy-to-Render.md](Deploy-to-Render.md) for hosting steps and the current verification status. The public version uses temporary memory caches, disables imports and local Ollama, and accepts only its configured Render hostname. The local version retains its existing behaviour.
