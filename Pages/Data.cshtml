@@ -1,0 +1,29 @@
+@page
+@model MarketLens.Pages.DataModel
+@{ ViewData["Title"] = "Data sources"; }
+<div class="workspace">
+    <div class="intro"><div><p class="eyebrow">NO BROKERAGE LOGIN</p><h1>Market data, directly.</h1><p class="muted">Search listed companies and retrieve public data without signing in.</p></div></div>
+    @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
+    <div class="dashboard">
+        <section class="panel setup-panel"><h2>Public market data</h2><p class="status">No user login · No brokerage account · No API key</p>
+            <p>Research now uses public Yahoo Finance responses. Search by company name or symbol, then fetch that listing's daily prices and available annual financial data.</p>
+            <p>Examples: <strong>Maybank → MY.1155</strong>, <strong>Apple → US.AAPL</strong>, <strong>Tencent → HK.00700</strong>. The adapter recognises 26 market prefixes, including Malaysia, US, Hong Kong, Singapore, Japan, China, Australia, Canada and several European markets. Individual listing/data availability still varies.</p>
+            <p>Company search and data requests are cached to reduce repeated calls. Data can be delayed. The public feed does not provide verified bid/ask and session status for actionable day-trading signals.</p>
+            <p>Our prototype uses an unofficial connection to Yahoo Finance public responses, rather than a contracted exchange data service. It is not a guaranteed catalogue of every listed company. Before selling the website publicly, use a licensed data provider with the required display/redistribution rights.</p>
+            <a class="text-link" asp-page="/Index">Search companies →</a>
+        </section>
+        @if (!Model.IsPublic) {
+        <section class="panel setup-panel"><h2>Import your data</h2><p>Upload daily prices from a permitted source. CSV imports need this exact header and unquoted values:</p><code>date,open,high,low,close,volume</code>
+            <p>Dates use YYYY-MM-DD; decimals use a dot. Rows must be ascending and unique. At least 60 completed daily bars are needed for a swing signal; 90 for a backtest.</p>
+            <form method="post" enctype="multipart/form-data" asp-page-handler="Import" class="stack-form">
+                <label asp-for="Symbol">Market symbol (CSV only)</label><input asp-for="Symbol" maxlength="30" />
+                <label asp-for="CompanyName">Company name (CSV only)</label><input asp-for="CompanyName" maxlength="150" />
+                <label class="check"><input asp-for="SplitAdjusted" /> CSV prices are adjusted for stock splits</label>
+                <label asp-for="Upload">CSV or dataset JSON (under 3 MB)</label><input asp-for="Upload" type="file" accept=".csv,.json" required />
+                <button type="submit">Validate & import</button>
+            </form>
+            <p>JSON can also include financial metrics. <a class="text-link" href="~/templates/dataset.sample.json" download>Download the fictional JSON template</a>. Keep <code>isSample: true</code> for fictional data. When entering verified real data, replace every sample value and set it to false. Fundamentals need a reporting-period date and a separate <code>valuationAsOf</code> timestamp for the current P/E and EPS. Set <code>isFinancialCompany: true</code> for banks/insurers; the generic model abstains for them.</p>
+        </section>
+        } else { <section class="panel setup-panel"><h2>Shared research preview</h2><p>Search and fetch public company data. File imports are available only in the local personal version. Favourites remain in your browser; public datasets are fetched again after server restarts.</p></section> }
+    </div>
+</div>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: marketlens
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Hosting__PublicMode
+        value: "true"
+      - key: PORT
+        value: "10000"

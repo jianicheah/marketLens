@@ -1,0 +1,75 @@
+@page
+@model MarketLens.Pages.IndexModel
+@using System.Globalization
+@{ ViewData["Title"] = "Research"; }
+<div class="workspace">
+    <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div><a class="outline" asp-page="/Data">Data sources ↗</a></div>
+    @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
+    @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
+    <div class="dashboard">
+        <section class="panel explorer">
+            <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
+            <form method="get" asp-page-handler="Search" class="search-form"><label class="sr-only" for="query">Search markets</label><input id="query" name="Query" value="@Model.Query" placeholder="Search markets" /><button type="submit">Search</button></form>
+            @if (Model.Companies.Length > 0)
+            {
+                <p class="list-note">Market search results · fetch data or save a favourite</p>
+                @foreach (var company in Model.Companies)
+                {
+                    <div class="market-result"><form method="post" asp-page-handler="Refresh" class="company-search-result">
+                        <input type="hidden" name="Symbol" value="@company.Symbol" />
+                        <input type="hidden" name="Horizon" value="@Model.Horizon" />
+                        <button class="stock-row search-result-button" type="submit"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small></span><span>Fetch →</span></button>
+                    </form><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
+                }
+            }
+            else if (Request.Query["handler"] == "Search" && !string.IsNullOrWhiteSpace(Model.Query))
+            { <p class="empty">No supported company listings were found. Try the company ticker or another name.</p> }
+            <div class="setup-panel"><h2>Fetch public market data</h2><form method="post" asp-page-handler="Refresh" class="stack-form"><label for="fetchSymbol">Market symbol</label><input id="fetchSymbol" name="Symbol" value="@(Model.Symbol ?? "US.AAPL")" placeholder="US.AAPL / MY.1155" required maxlength="30" /><input type="hidden" name="Horizon" value="@Model.Horizon" /><input type="hidden" name="OwnsStock" value="@Model.OwnsStock.ToString().ToLowerInvariant()" /><button type="submit">Fetch latest data</button></form><p class="muted">No sign-in is required. Data may be delayed or unavailable for some listings; no fictional fallback is used.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
+        </section>
+        <div class="detail-column">
+        @if (Model.Data is not { } data || Model.Result is not { } result)
+        {
+            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Search a listed company and fetch public data, or import an exported dataset on the Data sources page. Then choose a timeframe here.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p><a class="text-link" asp-page="/Data">Set up market data →</a></section>
+        }
+        else
+        {
+            <section class="panel company-detail"><div class="panel-heading"><div><p class="eyebrow">@data.Symbol / @IndexModel.DisplaySource(data.Source)</p><h2 class="company-title">@data.Name</h2></div><span class="count">@(data.IsSample ? "FICTIONAL DATA" : data.IsImported ? "IMPORTED DATA" : "PUBLIC MARKET DATA")</span></div>
+                @if (data.IsSample) { <aside class="notice inset"><strong>Fictional demonstration.</strong> These prices and results cannot inform a real investment.</aside> }
+                <div class="quote"><strong><span>@data.Currency</span> @(data.Price?.ToString("N2") ?? "—")</strong><span class="muted">@(data.Quote is null ? "Latest stored daily close" : "Snapshot price · " + data.Quote.MarketState)</span></div>
+                <p class="list-note">Quote time: @IndexModel.DisplayTime(data.Quote?.UpdatedAt) · Retrieved: @IndexModel.DisplayTime(data.RetrievedAt)</p>
+                @if (data.Daily.Length > 1)
+                {
+                    var chart = data.Daily.TakeLast(120).ToArray(); var min = chart.Min(b => b.Close); var range = Math.Max(chart.Max(b => b.Close) - min, 0.01m);
+                    var points = string.Join(" ", chart.Select((b,i) => $"{(i * 600m / (chart.Length - 1)).ToString("0.##", CultureInfo.InvariantCulture)},{(150m - (b.Close - min) / range * 130m).ToString("0.##", CultureInfo.InvariantCulture)}"));
+                    <div class="chart-label"><span>Daily closing prices</span><span>@chart.Length bars · @data.Currency</span></div>
+                    <svg class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Daily closing price chart for @data.Name"><path d="M0 40H600 M0 90H600 M0 140H600" stroke="#e8efed" fill="none" /><polyline points="@points" stroke="#079a80" stroke-width="3" fill="none" /></svg>
+                    <div class="chart-label"><span>@chart[0].Time.ToString("dd MMM yyyy")</span><span>@chart[^1].Time.ToString("dd MMM yyyy")</span></div>
+                }
+                @if (!data.IsSample) { <div class="inset spaced favourite-detail"><button type="button" class="outline favourite-toggle" data-symbol="@data.Symbol" data-name="@data.Name" aria-pressed="false" hidden>☆ Favourite</button></div> }
+
+
+            </section>
+            <section class="panel analysis"><div class="panel-heading"><h2>Investment analysis</h2><span class="count">Rule-based baseline</span></div>
+                <form method="get" class="analysis-controls"><input type="hidden" name="Symbol" value="@data.Symbol" /><input type="hidden" name="Demo" value="@Model.Demo.ToString().ToLowerInvariant()" /><label for="horizon">Timeframe</label><select id="horizon" asp-for="Horizon"><option value="day">Day trading</option><option value="swing">Weeks / months</option><option value="long">Long-term</option></select><label class="check"><input asp-for="OwnsStock" /> I own this stock</label><label for="CostBps">Backtest cost per side (bps)</label><input asp-for="CostBps" type="number" min="0" max="100" step="0.1" /><button type="submit">Analyse</button></form>
+                <div class="assessment"><p class="eyebrow">@(data.IsSample ? "FICTIONAL DEMO SIGNAL" : "RESEARCH SIGNAL")</p><h3>@result.Signal</h3><p>@result.Summary</p><p class="spaced"><strong>@IndexModel.DisplaySource(result.Basis)</strong><br />@(Model.Horizon == "long" ? "Financial reporting period ended" : "Price bar timestamp used"): @IndexModel.DisplayTime(result.AsOf)</p><p class="list-note">@(Model.Horizon == "long" ? "Financial reporting date; current valuation uses a separate timestamp." : "Provider bar timestamp, which may mark the start of the daily session rather than its closing time. Quote and retrieval times are shown above.")</p></div>
+                <div class="metrics">@foreach (var metric in result.Metrics) { <div><span>@metric.Name</span><strong>@metric.Value</strong></div> }</div>
+                <div class="setup-panel"><h2>Why this result?</h2><ul>@foreach (var reason in result.Reasons) { <li>@reason</li> }</ul>
+                    @if (result.StopReference is { } stop) { <p>ATR reference stop: <strong>@data.Currency @stop.ToString("N2")</strong> · Reference target: <strong>@data.Currency @result.TargetReference?.ToString("N2")</strong>. These levels are not used as orders in the backtest.</p> }
+                    <h2>Risks and limits</h2><ul>@foreach (var risk in result.Risks) { <li>@risk</li> }</ul>
+                    <a class="text-link" asp-page="/Index" asp-page-handler="Export" asp-route-Symbol="@data.Symbol" asp-route-Horizon="@Model.Horizon" asp-route-Demo="@Model.Demo" asp-route-OwnsStock="@Model.OwnsStock" asp-route-CostBps="@Model.CostBps">Download analysis JSON</a>
+                </div>
+            </section>
+            <section class="panel setup-panel"><h2>Historical strategy check</h2>
+                @if (Model.Backtest is { } bt)
+                {
+                    <p>@IndexModel.DisplayTime(bt.Start) to @IndexModel.DisplayTime(bt.End) · @bt.CostBps bps costs per side</p>
+                    <div class="metrics"><div><span>Strategy return</span><strong>@bt.ReturnPercent.ToString("N2")%</strong></div><div><span>Buy & hold return</span><strong>@bt.BuyHoldPercent.ToString("N2")%</strong></div><div><span>Maximum drawdown</span><strong>@bt.MaxDrawdownPercent.ToString("N2")%</strong></div><div><span>Closed round trips</span><strong>@bt.ClosedTrades</strong></div><div><span>Historical trade win rate</span><strong>@(bt.WinRatePercent?.ToString("N2") ?? "N/A")@(bt.WinRatePercent is null ? "" : "%")</strong></div></div>
+                    <p>Signals use the prior close, trades use the next open, and any final holding is liquidated at the last close. Long-only; Hold leaves the current position unchanged. Benchmark uses the same starting open and costs. Taxes, market impact and separate cash-dividend payments are excluded. Provider-adjusted prices may embed dividend adjustments.</p><p><strong>This is a retrospective check on one series, not an independent validation or a probability that this recommendation will succeed.</strong> @if (data.IsSample) { <span>The backtest data is fictional too.</span> }</p>
+                }
+                else { <p>A swing backtest needs at least 90 completed, split-adjusted daily bars. Intraday and fundamentals backtests are not implemented.</p> }
+            </section>
+        }
+        </div>
+    </div>
+</div>
+@section Scripts { <script src="~/js/favourites.js" asp-append-version="true" defer></script> }
