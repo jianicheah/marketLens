@@ -7,7 +7,8 @@ namespace MarketLens.Pages;
 [RequestSizeLimit(4 * 1024 * 1024)]
 public class DataModel(ImportService import, DatasetStore store, MarketDataProvider provider) : PageModel
 {
-    public bool UsesMarketstack => provider.UsesMarketstack;
+    public bool UsesManagedProvider => provider.UsesManagedProvider;
+    public string ProviderName => provider.Name;
     public bool IsPublic => store.IsPublic;
     public bool SourceConfigured => provider.Configured;
     [BindProperty(SupportsGet = true)] public string? Query { get; set; }

@@ -51,10 +51,13 @@ builder.Services.AddSingleton<BacktestService>();
 builder.Services.AddMemoryCache(options => options.SizeLimit = 128);
 builder.Services.AddSingleton<PublicMarketDataProvider>();
 builder.Services.AddSingleton<MarketstackDataProvider>();
+builder.Services.AddSingleton<TwelveDataProvider>();
 builder.Services.AddSingleton<AvailableCompanyCatalog>();
 builder.Services.AddSingleton<MarketDataProvider>();
 builder.Logging.AddFilter("System.Net.Http.HttpClient.Marketstack", LogLevel.None);
+builder.Logging.AddFilter("System.Net.Http.HttpClient.TwelveData", LogLevel.None);
 builder.Services.AddHttpClient("Marketstack", client => { client.BaseAddress = new Uri("https://api.marketstack.com/"); client.Timeout = TimeSpan.FromSeconds(25); }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddHttpClient("TwelveData", client => { client.BaseAddress = new Uri("https://api.twelvedata.com/"); client.Timeout = TimeSpan.FromSeconds(25); }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
 builder.Services.AddSingleton<AiExplanationService>();
 builder.Services.AddHttpClient("PublicMarketData", client =>
 {

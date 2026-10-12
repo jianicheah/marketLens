@@ -22,7 +22,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public BacktestResult? Backtest { get; private set; }
     public AiExplanation? Ai { get; private set; }
     public bool CanManage => !store.IsPublic || User.Identity?.IsAuthenticated == true;
-    public bool DailyOnly => marketData.UsesMarketstack;
+    public bool DailyOnly => marketData.DailyOnly;
     public bool AiEnabled => ai.Enabled;
     public string[] Symbols { get; private set; } = [];
     public CompanySearchResult[] Companies { get; private set; } = [];
