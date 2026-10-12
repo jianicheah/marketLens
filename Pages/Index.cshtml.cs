@@ -21,6 +21,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public Recommendation? Result { get; private set; }
     public BacktestResult? Backtest { get; private set; }
     public AiExplanation? Ai { get; private set; }
+    public bool CanManage => !store.IsPublic || User.Identity?.IsAuthenticated == true;
     public bool DailyOnly => marketData.UsesMarketstack;
     public bool AiEnabled => ai.Enabled;
     public string[] Symbols { get; private set; } = [];
@@ -52,7 +53,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     {
         NormalizeHorizon();
         Symbol = Symbol?.Trim().ToUpperInvariant();
-        if (!Demo && (store.IsPublic || AutoFetch) && DataValidation.ValidSymbol(Symbol))
+        if (!Demo && CanManage && (store.IsPublic || AutoFetch) && DataValidation.ValidSymbol(Symbol))
         {
             try { store.Save(await marketData.FetchAsync(Symbol!, Horizon == "day", cancellation)); }
             catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
@@ -73,7 +74,8 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
             else
             {
                 Symbol ??= Symbols.FirstOrDefault();
-                if (Symbol is not null && DataValidation.ValidSymbol(Symbol)) Data = store.Read(Symbol);
+                if (Symbol is not null && DataValidation.ValidSymbol(Symbol)) Data = marketData.ReadAvailable(Symbol) ?? store.Read(Symbol);
+                if (Symbol is not null && Data is null && !CanManage) Error = "This company is not currently published. Choose an available company or try again after the owner updates the catalogue.";
             }
             if (Data is not null)
             {

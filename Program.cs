@@ -1,14 +1,15 @@
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Authentication;
 using MarketLens.Services;
 using Microsoft.AspNetCore.DataProtection;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var hosting = new RenderHosting(builder.Configuration);
-var ownerOnly = hosting.IsPublic && string.Equals(builder.Configuration["MarketData:Provider"], "Marketstack", StringComparison.OrdinalIgnoreCase);
-var ownerUser = builder.Configuration["Hosting:OwnerUser"] ?? "owner";
+var ownerOnly = hosting.IsPublic;
 var ownerPassword = builder.Configuration["Hosting:OwnerPassword"] ?? "";
 if (ownerOnly && ownerPassword.Length < 12)
-    throw new InvalidOperationException("The hosted personal version requires Hosting__OwnerPassword with at least 12 characters. Set it in Render Environment, never in GitHub.");
+    throw new InvalidOperationException("Owner data management requires Hosting__OwnerPassword with at least 12 characters. Set it in Render Environment, never in GitHub.");
 if (hosting.IsPublic)
 {
     var host = hosting.PublicHost;
@@ -23,6 +24,23 @@ if (hosting.IsPublic)
 }
 builder.Services.AddSingleton(hosting);
 builder.Services.AddRazorPages();
+builder.Services.AddAuthentication("Owner").AddCookie("Owner", options =>
+{
+    options.LoginPath = "/Owner";
+    // Relative redirects preserve external HTTPS when Render terminates TLS at its proxy.
+    options.Events.OnRedirectToLogin = context =>
+    {
+        var target = new Uri(context.RedirectUri);
+        context.Response.Redirect(target.PathAndQuery);
+        return Task.CompletedTask;
+    };
+    options.Cookie.Name = "MarketLens.Owner";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = hosting.IsPublic ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+    options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    options.SlidingExpiration = false;
+});
 var protection = builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys")));
 if (OperatingSystem.IsWindows()) protection.ProtectKeysWithDpapi();
@@ -53,6 +71,8 @@ builder.Services.AddSingleton<AnalysisService>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddFixedWindowLimiter("owner-login", options =>
+    { options.PermitLimit = 10; options.Window = TimeSpan.FromMinutes(1); options.QueueLimit = 0; });
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
         hosting.IsPublic && context.Request.Path != "/health"
             ? RateLimitPartition.GetFixedWindowLimiter("public", _ => new FixedWindowRateLimiterOptions
@@ -71,21 +91,23 @@ app.Use(async (context, next) =>
     context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
     // Render terminates HTTPS at its edge; do not redirect internal HTTP and cause a proxy loop.
     if (hosting.IsPublic) context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000";
-    if (ownerOnly && context.Request.Path != "/health" &&
-        !OwnerAccess.Accepts(context.Request.Headers.Authorization.ToString(), ownerUser, ownerPassword))
-    {
-        context.Response.StatusCode = 401;
-        context.Response.Headers["WWW-Authenticate"] = "Basic realm=\"MarketLens personal research\", charset=\"UTF-8\"";
-        context.Response.Headers["Cache-Control"] = "no-store";
-        await context.Response.WriteAsync("Sign in with your website owner credentials. This is not a brokerage login.");
-        return;
-    }
-    if (ownerOnly) context.Response.Headers["Cache-Control"] = "private, no-store";
     await next();
 });
 app.UseExceptionHandler("/Error");
 if (!app.Environment.IsDevelopment() && !hosting.IsPublic) app.UseHsts();
 app.UseRouting();
+app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    if (ownerOnly && OwnerAccess.RequiresOwner(context.Request.Path.Value ?? "/", context.Request.Query["handler"].FirstOrDefault(), context.Request.Method) && context.User.Identity?.IsAuthenticated != true)
+    {
+        await context.ChallengeAsync("Owner");
+        return;
+    }
+    if (context.Request.Path.StartsWithSegments("/Owner") || context.Request.Path.StartsWithSegments("/Data"))
+        context.Response.Headers["Cache-Control"] = "private, no-store";
+    await next();
+});
 app.UseRateLimiter();
 app.UseAuthorization();
 app.MapGet("/health", () => Results.Text("OK"));

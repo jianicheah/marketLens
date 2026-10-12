@@ -8,6 +8,7 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public CompanySearchResult[] Popular => AvailableCompanies().Take(10).ToArray();
     public CompanySearchResult[] AvailableCompanies(string? country = null, string? query = null) => Configured ? available.Companies(Name, country, query) : [];
     public AvailableCountry[] AvailableCountries => Configured ? available.Countries(Name) : [];
+    public MarketData? ReadAvailable(string symbol) => Configured ? available.Read(Name, symbol) : null;
     public bool HasPrices(string symbol) => Configured && available.Read(Name, symbol) is not null;
     public Task<CompanySearchResult[]> BrowseAsync(string mic, int offset, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync("", cancellation, mic, offset) : yahoo.SearchAsync(MarketDirectory.Find(mic)?.Market ?? "", cancellation);
     public Task<CompanySearchResult[]> FindAsync(string query, string? mic, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync(query, cancellation, mic) : yahoo.SearchAsync(query, cancellation);

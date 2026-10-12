@@ -364,6 +364,28 @@ Check("Missing connection and failed price access leave countries unavailable", 
     Reject(() => provider.FetchAsync("US.AAPL", false, default).GetAwaiter().GetResult());
     Assert(provider.AvailableCountries.Length == 0, "A rejected price request enabled a country.");
 });
+Check("Public browsing stays open while provider actions require the owner", () =>
+{
+    Assert(!OwnerAccess.RequiresOwner("/", null) && !OwnerAccess.RequiresOwner("/", "Search") && !OwnerAccess.RequiresOwner("/", "Browse"), "Visitor browsing requires owner access.");
+    Assert(!OwnerAccess.RequiresOwner("/Owner", null) && !OwnerAccess.RequiresOwner("/health", null), "Login or health is protected.");
+    Assert(OwnerAccess.RequiresOwner("/Data", null) && OwnerAccess.RequiresOwner("/data", "Search"), "Provider directory management is public.");
+    Assert(OwnerAccess.RequiresOwner("/Data/", null) && OwnerAccess.RequiresOwner("/Index/", "Search", "POST"), "Trailing slash or POST bypassed owner access.");
+    Assert(OwnerAccess.RequiresOwner("/", "Refresh") && OwnerAccess.RequiresOwner("/Index", "Ai"), "Visitor can invoke a provider/AI mutation.");
+});
+
+Check("Incomplete historical rows shorten the recent segment without inventing prices", () =>
+{
+    var payload = System.Text.Json.Nodes.JsonNode.Parse(FakeMarketstackHandler.Payload())!;
+    payload["data"]![84]!["close"] = null;
+    payload["data"]![84]!["adj_close"] = null;
+    using var document = JsonDocument.Parse(payload.ToJsonString());
+    var data = MarketstackDataProvider.Parse(document.RootElement, new("US.AAPL", "AAPL", "Apple", "NASDAQ"), now);
+    Assert(data.Daily.Length == 84 && data.SplitAdjusted && data.Warnings!.Any(x => x.Contains("History shortened")), "Incomplete history was joined or fabricated.");
+    payload["data"]![0]!["close"] = null; payload["data"]![0]!["adj_close"] = null;
+    using var invalid = JsonDocument.Parse(payload.ToJsonString());
+    Reject(() => MarketstackDataProvider.Parse(invalid.RootElement, new("US.AAPL", "AAPL", "Apple", "NASDAQ"), now));
+});
+
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);
@@ -451,7 +473,7 @@ sealed class FakeDirectoryHandler : HttpMessageHandler
     {
         Requests++; LastQuery = request.RequestUri!.Query;
         var path = request.RequestUri.AbsolutePath;
-        var body = path.EndsWith("/v2/tickers") ? Listings : FakeMarketstackHandler.Payload().Replace("AAPL", "BA").Replace("XNAS", "XNYS");
+        var body = path.EndsWith("/v1/tickers") ? Listings : FakeMarketstackHandler.Payload().Replace("AAPL", "BA").Replace("XNAS", "XNYS");
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
     }
 }

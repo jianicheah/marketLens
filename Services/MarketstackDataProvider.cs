@@ -39,7 +39,8 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
         try
         {
             if (cache.TryGetValue<CompanySearchResult[]>(key, out cached)) return cached!;
-            var path = "v2/tickers?limit=24&offset=" + offset;
+            // The listing directory uses v1; v2/tickers returns 404. Price history remains v2/eod.
+            var path = "v1/tickers?limit=24&offset=" + offset;
             if (query.Length > 0) path += "&search=" + Uri.EscapeDataString(query);
             if (mic is not null) path += "&exchange=" + Uri.EscapeDataString(mic);
             var document = await RequestAsync(path, cancellation);
@@ -147,7 +148,22 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
         if (rows.Any(x => !x.TryGetProperty("symbol", out var symbol) || symbol.GetString() != company.ProviderSymbol ||
             !x.TryGetProperty("exchange", out var exchange) || (company.ExchangeMic is not null ? exchange.GetString() != company.ExchangeMic : MarketDirectory.MarketFor(exchange.GetString() ?? "", null) != company.Symbol.Split('.')[0])))
             throw new InvalidDataException("Marketstack returned a different symbol or an unsupported exchange.");
-        var adjusted = rows.All(x => new[] { "adj_open", "adj_high", "adj_low", "adj_close" }.All(field => Number(x, field) is > 0));
+        var allRows = rows;
+        DateTimeOffset TradingDate(JsonElement row) => DateTimeOffset.TryParse(Text(row, "date"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date : throw new InvalidDataException("Marketstack returned an invalid trading date.");
+        bool Complete(JsonElement row, string prefix)
+        {
+            var open = Number(row, prefix + "open"); var high = Number(row, prefix + "high");
+            var low = Number(row, prefix + "low"); var close = Number(row, prefix + "close"); var volume = Number(row, "volume");
+            return open is > 0 && close is > 0 && low is > 0 && high is > 0 and <= 1000000000m &&
+                high >= Math.Max(open.Value, close.Value) && low <= Math.Min(open.Value, close.Value) && volume is >= 0 and <= 1000000000000000m;
+        }
+        rows = rows.OrderByDescending(TradingDate).ToArray();
+        var adjusted = Complete(rows[0], "adj_");
+        // Stop at the first incomplete bar; never join older prices across a provider-data gap.
+        rows = rows.TakeWhile(row => Complete(row, adjusted ? "adj_" : "")).ToArray();
+        if (rows.Length == 0) throw new InvalidDataException("The latest provider price bar is incomplete. No reliable current series can be shown.");
+        var omitted = allRows.Length - rows.Length;
         var prefix = adjusted ? "adj_" : "";
         var zone = TimeZoneInfo.FindSystemTimeZoneById(DataValidation.ZoneId(company.Symbol));
         var bars = rows.Select(x =>
@@ -167,9 +183,10 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
             "Price history is cached for 24 hours to conserve the 100-request monthly quota. Render restarts clear this cache.",
             "The provider trading date uses a market-local date marker; this is not a verified closing or retrieval timestamp."
         };
+        if (omitted > 0) warnings.Add($"History shortened: {omitted} older rows were excluded at the first incomplete price/volume bar. Only the complete recent segment is used; missing prices were not filled.");
         if (adjusted) warnings.Add("Provider-adjusted OHLC is used; corporate-action adjustments may include dividends. Volume is provider-reported.");
         else warnings.Add("Adjusted OHLC is incomplete. Raw prices are shown, but trend signals and backtests are withheld.");
-        var currencies = rows.Select(x => Text(x, "price_currency") ?? Text(x, "currency")).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToArray();
+        var currencies = allRows.Select(x => Text(x, "price_currency") ?? Text(x, "currency")).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToArray();
         if (currencies.Length > 1) throw new InvalidDataException("The provider returned inconsistent price currencies.");
         var currency = currencies.SingleOrDefault() ?? company.Currency;
         if (currencies.Length == 0 && (company.Symbol.StartsWith("UK.") || company.Symbol.StartsWith("ZA.")))

@@ -3,21 +3,21 @@
 @using System.Globalization
 @{ ViewData["Title"] = "Research"; }
 <div class="workspace">
-    <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div><a class="outline" asp-page="/Data">Data sources ↗</a></div>
+    <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div>@if (Model.CanManage) { <a class="outline" asp-page="/Data">Manage data ↗</a> }</div>
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
     <div class="dashboard">
         <section class="panel explorer">
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
             <div class="market-browser">
-                <div class="browser-heading"><h2>Available countries</h2><a class="text-link" asp-page="/Data">Manage companies</a></div>
+                <div class="browser-heading"><h2>Available countries</h2>@if (Model.CanManage) { <a class="text-link" asp-page="/Data">Manage companies</a> }</div>
                 @if (!Model.SourceConfigured)
                 {
-                    <p class="connection-note">No live data connection is configured. Connect your provider on the Data sources page to check company data. Country choices will appear after prices are successfully retrieved. <a class="text-link" asp-page="/Data">Set up connection →</a></p>
+                    <p class="connection-note">@(Model.CanManage ? "Connect a data provider in Manage data to publish company research." : "Market data is being prepared. Please check back later.") @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Set up connection →</a> }</p>
                 }
                 else if (Model.Countries.Length == 0)
                 {
-                    <p class="connection-note">No companies have verified daily data yet. Find a company in Data sources and check its prices to add it here. <a class="text-link" asp-page="/Data">Find companies →</a></p>
+                    <p class="connection-note">@(Model.CanManage ? "Find a company in Manage data and check its prices to publish it here." : "The company catalogue is being updated. Please check back shortly.") @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Find companies →</a> }</p>
                 }
                 else
                 {
@@ -43,10 +43,7 @@
             }
             @foreach (var company in Model.Companies)
             {
-                <div class="market-result"><form method="post" asp-page-handler="Refresh" class="company-search-result">
-                    <input type="hidden" name="Country" value="@Model.Country" /><input type="hidden" name="Symbol" value="@company.Symbol" /><input type="hidden" name="Horizon" value="@Model.Horizon" />
-                    <button class="stock-row search-result-button" type="submit"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small><small class="availability">@Model.ListingStatus(company.Symbol)</small></span><span>View →</span></button>
-                </form><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
+                <div class="market-result"><a class="stock-row search-result-button company-view" asp-page="/Index" asp-route-Symbol="@company.Symbol" asp-route-Country="@Model.Country" asp-route-Horizon="@Model.Horizon"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small><small class="availability">@Model.ListingStatus(company.Symbol)</small></span><span>View →</span></a><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
             }
             @if (Model.Countries.Length > 0 && Model.Companies.Length == 0)
             { <p class="empty">No available companies match this search. Try another name or ticker, or clear the search.</p> }
@@ -57,12 +54,12 @@
                     @if (Model.BrowseOffset + 24 < Model.MatchingCount) { <a class="text-link" asp-page-handler="Browse" asp-route-Country="@Model.Country" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next companies →</a> }
                 </nav>
             }
-            <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Country browsing and search use the verified catalogue without API requests. Data is cached for up to 24 hours; server restarts clear availability. Add more companies from Data sources.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
+            <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
         </section>
         <div class="detail-column">
         @if (Model.Data is not { } data || Model.Result is not { } result)
         {
-            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose an available country and company, or connect and check company data from Data sources. You can also import an exported dataset on the Data sources page. Then choose a timeframe here.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p><a class="text-link" asp-page="/Data">Set up market data →</a></section>
+            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose an available country and company to view its chart and analysis. Research uses daily closing data published by the website owner.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p>@if (Model.CanManage) { <a class="text-link" asp-page="/Data">Manage market data →</a> }</section>
         }
         else
         {

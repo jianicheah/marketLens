@@ -1,0 +1,15 @@
+@page
+@model MarketLens.Pages.OwnerModel
+@{ ViewData["Title"] = "Owner sign in"; }
+<div class="workspace"><section class="panel setup-panel owner-login">
+    <p class="eyebrow">DATA MANAGEMENT</p><h1>Owner sign in</h1>
+    <p>Manage the provider connection and publish company data. Visitors can browse research and save favourites without signing in.</p>
+    @if (Model.Error is not null) { <aside class="notice" role="alert">@Model.Error</aside> }
+    <form method="post" class="stack-form">
+        <input type="hidden" asp-for="ReturnUrl" />
+        <label asp-for="Username">Username</label><input asp-for="Username" autocomplete="username" required maxlength="100" />
+        <label asp-for="Password">Password</label><input asp-for="Password" type="password" autocomplete="current-password" required maxlength="256" />
+        <button type="submit">Sign in</button>
+    </form>
+    <a class="text-link" asp-page="/Index">← Back to research</a>
+</section></div>

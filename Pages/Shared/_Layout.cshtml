@@ -1,3 +1,4 @@
+@inject MarketLens.Services.RenderHosting Hosting
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,11 +8,10 @@
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
 <body>
-    <header class="topbar"><a class="brand" asp-page="/Index"><span class="brand-mark">M</span> MarketLens</a><nav class="toplinks"><a asp-page="/Index">Research</a><a asp-page="/Data">Data sources</a><span class="local-label"><i></i> Personal use</span></nav></header>
+    <header class="topbar"><a class="brand" asp-page="/Index"><span class="brand-mark">M</span> MarketLens</a><nav class="toplinks"><a asp-page="/Index">Research</a>@if (!Hosting.IsPublic || User.Identity?.IsAuthenticated == true) { <a asp-page="/Data">Manage data</a> } else { <a asp-page="/Owner">Owner sign in</a> } @if (Hosting.IsPublic && User.Identity?.IsAuthenticated == true) { <form method="post" asp-page="/Owner" asp-page-handler="Logout"><button class="outline" type="submit">Sign out</button></form> }</nav></header>
     <aside class="analysis-disclaimer" aria-label="Analysis disclaimer"><strong>AI feature notice: This is AI analysis only.</strong><span>For information only; not financial advice. Signals use disclosed calculation rules. AI explanations appear only when a model is enabled. Make investments through a trusted, regulated platform.</span></aside>
     <main>@RenderBody()</main>
     <footer>Personal research workspace · Rule-based signals · No trade execution<br />AI feature notice: This is AI analysis only. For information only; not financial advice.<br />Make investments through a trusted, regulated platform. Review evidence and risks before acting.</footer>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
-
