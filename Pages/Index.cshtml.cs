@@ -29,6 +29,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     [BindProperty(SupportsGet = true)] public bool AutoFetch { get; set; }
     public async Task OnGetAsync(CancellationToken cancellation)
     {
+        NormalizeHorizon();
         Symbol = Symbol?.Trim().ToUpperInvariant();
         if (!Demo && (store.IsPublic || AutoFetch) && DataValidation.ValidSymbol(Symbol))
         {
@@ -40,7 +41,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     }
     private void OnGet()
     {
-        if (Horizon is not ("day" or "swing" or "long")) Horizon = "swing";
+        NormalizeHorizon();
         if (CostBps is < 0 or > 100) { Error = "Costs must be 0–100 basis points per side."; CostBps = 10; }
         try
         {
@@ -79,6 +80,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     }
     public async Task<IActionResult> OnPostRefreshAsync(CancellationToken cancellation)
     {
+        NormalizeHorizon();
         Symbol = Symbol?.Trim().ToUpperInvariant();
         if (!DataValidation.ValidSymbol(Symbol)) { Notice = "Enter a valid symbol such as US.AAPL or MY.1155."; return RedirectToPage(); }
         try
@@ -105,6 +107,15 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         if (Result is null || Data is null) return NotFound();
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new { Data.Symbol, GeneratedAt = clock.GetUtcNow(), Horizon, OwnsStock, Result, Backtest }, DatasetStore.JsonOptions);
         return File(bytes, "application/json", "MarketLens-analysis.json");
+    }
+    private void NormalizeHorizon()
+    {
+        // Neither current connector supplies actionable intraday data.
+        if (Horizon is not ("swing" or "long") || DailyOnly && Horizon != "swing")
+        {
+            Horizon = "swing";
+            ModelState.Remove(nameof(Horizon));
+        }
     }
     public static string DisplaySource(string source) => source == "Yahoo Finance public data (unofficial)" ? "Market data via Yahoo Finance" : source;
     public static string DisplayTime(DateTimeOffset? time) => time?.ToOffset(TimeSpan.FromHours(8)).ToString("dd MMM yyyy HH:mm 'SGT'") ?? "Unavailable";
