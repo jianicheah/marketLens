@@ -25,14 +25,28 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public bool AiEnabled => ai.Enabled;
     public string[] Symbols { get; private set; } = [];
     public CompanySearchResult[] Companies { get; private set; } = [];
-    [BindProperty(SupportsGet = true)] public string? Mic { get; set; }
+    [BindProperty(SupportsGet = true)] public string? Country { get; set; }
     [BindProperty(SupportsGet = true), Range(0, 10000)] public int BrowseOffset { get; set; }
     public bool SourceConfigured => marketData.Configured;
-    public bool DirectoryResults { get; private set; }
-    public bool CanBrowse => marketData.UsesMarketstack;
-    public string ResultsTitle { get; private set; } = "Popular companies";
-    public string ListingStatus(string symbol) => marketData.HasPrices(symbol) ? "Daily prices cached" : DirectoryResults ? "Listing found · prices not checked" : "Suggested · prices not checked";
-
+    public AvailableCountry[] Countries => marketData.AvailableCountries;
+    public int MatchingCount { get; private set; }
+    public string ResultsTitle { get; private set; } = "Available companies";
+    public string ListingStatus(string symbol) => "Daily data available · cached";
+    private void LoadCompanies()
+    {
+        if (!SourceConfigured) { Companies = []; MatchingCount = 0; return; }
+        if (Country is not null && !Countries.Any(x => x.Code == Country))
+        {
+            Error = "This country has no verified daily data in the current catalogue. Choose one of the available countries below.";
+            Country = null; BrowseOffset = 0;
+        }
+        if (BrowseOffset is < 0 or > 10000) BrowseOffset = 0;
+        if (Query?.Length > 80) { Error = "Search must be 80 characters or fewer."; Companies = []; MatchingCount = 0; return; }
+        ResultsTitle = Country is null ? "Available companies" : AvailableCompanyCatalog.CountryName(Country) + " companies";
+        var matches = marketData.AvailableCompanies(Country, Query);
+        MatchingCount = matches.Length;
+        Companies = matches.Skip(BrowseOffset).Take(24).ToArray();
+    }
     [BindProperty(SupportsGet = true)] public bool AutoFetch { get; set; }
     public async Task OnGetAsync(CancellationToken cancellation)
     {
@@ -49,7 +63,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     private void OnGet()
     {
         NormalizeHorizon();
-        Companies = marketData.Popular;
+        LoadCompanies();
         if (CostBps is < 0 or > 100) { Error = "Costs must be 0–100 basis points per side."; CostBps = 10; }
         try
         {
@@ -75,32 +89,8 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         catch (Exception e) when (e is InvalidDataException or IOException or JsonException)
         { Error = "Stored data could not be analysed. Re-import a valid dataset or refresh the source."; Data = null; Result = null; }
     }
-    public async Task<IActionResult> OnGetSearchAsync(CancellationToken cancellation)
-    {
-        OnGet();
-        ResultsTitle = "Search results";
-        Companies = [];
-        if (Mic is not null && MarketDirectory.Find(Mic) is null) { Error = "Choose a market from the list."; return Page(); }
-        if (!string.IsNullOrWhiteSpace(Query))
-        {
-            try { Companies = await marketData.FindAsync(Query, Mic, cancellation); DirectoryResults = SourceConfigured; }
-            catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
-            { Error = e is InvalidDataException ? e.Message : "Company search is unavailable. Try again later or open a favourite."; }
-        }
-        return Page();
-    }
-    public async Task<IActionResult> OnGetBrowseAsync(CancellationToken cancellation)
-    {
-        OnGet();
-        Companies = [];
-        var market = MarketDirectory.Find(Mic ?? "");
-        if (market is null || BrowseOffset is < 0 or > 10000) { Error = "Choose a market from the list."; return Page(); }
-        ResultsTitle = market.Name;
-        try { Companies = await marketData.BrowseAsync(market.Mic, BrowseOffset, cancellation); DirectoryResults = SourceConfigured; }
-        catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
-        { Error = e is InvalidDataException ? e.Message : "The listing directory is unavailable. Try again later or open a favourite."; }
-        return Page();
-    }
+    public IActionResult OnGetSearch() { BrowseOffset = 0; OnGet(); return Page(); }
+    public IActionResult OnGetBrowse() { OnGet(); return Page(); }
     public async Task<IActionResult> OnPostRefreshAsync(CancellationToken cancellation)
     {
         NormalizeHorizon();
@@ -113,7 +103,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         }
         catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
         { Notice = e is InvalidDataException ? e.Message : "The public data request failed. Check the symbol or try again later. No account login is required; saved data is unchanged."; }
-        return RedirectToPage(new { Symbol, Horizon, OwnsStock, CostBps });
+        return RedirectToPage(new { Symbol, Horizon, OwnsStock, CostBps, Country });
     }
     public async Task<IActionResult> OnPostAiAsync(CancellationToken cancellation)
     {

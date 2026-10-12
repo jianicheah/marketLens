@@ -34,12 +34,15 @@ Open the existing HTTPS website address. The browser asks for website owner cred
 - Username: `owner`
 - Password: the Hosting__OwnerPassword value you set in Render.
 
-This is your website login, not a brokerage login. Choose **Apple** under Popular companies, click **View**, and confirm the source says **Daily market data via Marketstack**. Save a favourite and reopen it the next day in the same browser profile. A restart can clear server data, so a favourite link fetches its history again.
+This is your website login, not a brokerage login. Open **Data sources**, search **Apple** under **Find and check companies**, then select **Check daily data**. Once valid prices return, **United States** and **Apple** appear in the main browser. Search there filters available companies within the selected country without API calls. Repeat the provider search/check to add more companies. A returned directory listing alone is not enough to enable a country.
+
+With no API key configured, no country options or fetchable suggestions are shown. The setup message means the connection is missing, not that a country has no listed companies.
 
 ## What works and what is limited
 
-- The landing page shows popular US company shortcuts without an API call. These are suggestions, not a search restriction. Browse exchange filters or search the provider directory for more listings. Listing metadata does not establish price access: the UI marks prices as unchecked until retrieval succeeds. Filters include Malaysia and other international exchanges, but their plan coverage has not been live verified.
-- Uncached directory browsing and searches also consume requests. Directory results are cached for 24 hours. An uncached price fetch requests one year of daily history for one stock through the documented v2 EOD endpoint. History is cached for 24 hours while the server process remains alive. Render sleep/restarts clear it; the provider's monthly quota remains enforced.
+- Country buttons and counts come only from successfully retrieved, validated daily prices. No speculative exchange list is displayed. The catalogue contains checked companies, not every listed company in an enabled country.
+- Country selection immediately shows its companies. Main-page search stays within that country. Results use pages of 24 companies; search runs across the whole verified catalogue for that country, not only the visible page.
+- Provider directory searches and uncached price requests use quota. Main-page country browsing and filtering use no API requests. The verified catalogue and price responses are bounded and cached for up to 24 hours; Render restarts clear them. Owner checks must repopulate the catalogue after a restart. Browser favourites remain saved and can repopulate it when opened.
 - Daily charts and existing weeks/months rules run when enough complete adjusted OHLC is returned. If adjustment data is missing, raw prices can be shown but trend signals and backtests abstain.
 - Live quotes, day trading and long-term fundamentals are unavailable. International listings can be retrieved if the provider returns a matching listing and valid daily history with a recognised currency/unit.
 - Rate/quota errors produce clear messages and a cooldown; there is no hidden fallback to Yahoo and no fictional substitute.
@@ -48,6 +51,6 @@ This is your website login, not a brokerage login. Choose **Apple** under Popula
 
 ## Verification
 
-The earlier 34-check suite passed before this browsing update. This update adds four synthetic-fixture checks for international listing parsing, directory caching, non-starter stock retrieval, pagination/filter forwarding, international currency/date handling and invalid filters. The updated application and test project compile successfully. Running the updated test executable is blocked by this laptop's Application Control policy (0x800711C7); the 38-check suite has not been confirmed passing. Browser rendering and live Marketstack coverage are also unverified. No API key was used during development.
+The earlier 34-check suite passed before this browsing update. The browsing changes add eight synthetic-fixture checks for international listing parsing, directory caching, non-starter stock retrieval, pagination/filter forwarding, international currency/date handling and invalid filters. The updated application and test project compile successfully. Running the updated test executable is blocked by this laptop's Application Control policy (0x800711C7); the 42-check suite has not been confirmed passing. Browser rendering and live Marketstack coverage are also unverified. No API key was used during development.
 
 Sources: https://marketstack.com/pricing, https://www.postman.com/apilayer/apilayer/documentation/k0f6wqp/marketstack, https://blog.apilayer.com/introducing-marketstack-v2-api/

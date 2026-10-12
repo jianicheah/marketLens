@@ -10,61 +10,59 @@
         <section class="panel explorer">
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
             <div class="market-browser">
-                <div class="browser-heading"><h2>Browse markets</h2><a class="text-link" asp-page="/Index">Popular companies</a></div>
-                <p class="muted">Choose an exchange to see its listings, or search by company name or ticker.</p>
-                @if (Model.CanBrowse)
-                {
-                    <nav class="market-chips" aria-label="Market filters">
-                    @foreach (var market in MarketLens.Services.MarketDirectory.Choices.Take(5))
-                    {
-                        <a class="market-chip @(Model.Mic == market.Mic ? "active" : "")" asp-page-handler="Browse" asp-route-Mic="@market.Mic" aria-current="@(Model.Mic == market.Mic ? "page" : null)">@market.Name</a>
-                    }
-                    </nav>
-                    <details class="more-markets"><summary>More markets</summary><nav class="market-chips" aria-label="More market filters">
-                    @foreach (var market in MarketLens.Services.MarketDirectory.Choices.Skip(5))
-                    {
-                        <a class="market-chip @(Model.Mic == market.Mic ? "active" : "")" asp-page-handler="Browse" asp-route-Mic="@market.Mic" aria-current="@(Model.Mic == market.Mic ? "page" : null)">@market.Name</a>
-                    }
-                    </nav></details>
-                    <p class="list-note browser-note">These are directory filters. Listing and price access depend on the provider and your plan; prices are checked when you open a company.</p>
-                }
+                <div class="browser-heading"><h2>Available countries</h2><a class="text-link" asp-page="/Data">Manage companies</a></div>
                 @if (!Model.SourceConfigured)
                 {
-                    <p class="connection-note">Data connection setup required. Popular suggestions are shown below; browsing more listings needs the owner's API key. <a class="text-link" asp-page="/Data">Set up connection →</a></p>
+                    <p class="connection-note">No live data connection is configured. Connect your provider on the Data sources page to check company data. Country choices will appear after prices are successfully retrieved. <a class="text-link" asp-page="/Data">Set up connection →</a></p>
+                }
+                else if (Model.Countries.Length == 0)
+                {
+                    <p class="connection-note">No companies have verified daily data yet. Find a company in Data sources and check its prices to add it here. <a class="text-link" asp-page="/Data">Find companies →</a></p>
+                }
+                else
+                {
+                    <p class="muted">Choose a country to see its available companies. Counts include only companies with successfully retrieved daily prices.</p>
+                    <nav class="market-chips" aria-label="Available countries">
+                        <a class="market-chip @(Model.Country is null ? "active" : "")" asp-page="/Index">All countries</a>
+                        @foreach (var country in Model.Countries)
+                        {
+                            <a class="market-chip @(Model.Country == country.Code ? "active" : "")" asp-page-handler="Browse" asp-route-Country="@country.Code" aria-current="@(Model.Country == country.Code ? "page" : null)">@country.Name · @country.Count</a>
+                        }
+                    </nav>
                 }
             </div>
-            <form method="get" asp-page-handler="Search" class="search-form">
-                <label class="sr-only" for="query">Search companies</label><input id="query" name="Query" value="@Model.Query" placeholder="Company name or ticker" maxlength="80" required />
-                @if (Model.CanBrowse) { <label class="sr-only" for="search-market">Search market</label><select id="search-market" name="Mic"><option value="">All listed markets</option>
-                @foreach (var market in MarketLens.Services.MarketDirectory.Choices)
-                { <option value="@market.Mic" selected="@(Model.Mic == market.Mic)">@market.Name</option> }
-                </select> }<button type="submit">Search</button>
-            </form>
-            <div class="browser-heading result-heading"><h2>@Model.ResultsTitle</h2><span class="count">@Model.Companies.Length shown</span></div>
-            @if (Request.Query["handler"].Count == 0)
-            { <p class="list-note">Popular shortcuts to start exploring. Search or browse to find more companies.</p> }
+            @if (Model.Countries.Length > 0)
+            {
+                <form method="get" asp-page-handler="Search" class="search-form">
+                    <input type="hidden" name="Country" value="@Model.Country" />
+                    <label class="sr-only" for="query">Search available companies</label><input id="query" name="Query" value="@Model.Query" placeholder="@(Model.Country is null ? "Search available companies" : "Search companies in " + MarketLens.Services.AvailableCompanyCatalog.CountryName(Model.Country))" maxlength="80" />
+                    <button type="submit">Search</button>
+                    @if (!string.IsNullOrWhiteSpace(Model.Query)) { <a class="text-link clear-search" asp-page-handler="Browse" asp-route-Country="@Model.Country">Clear</a> }
+                </form>
+                <div class="browser-heading result-heading"><h2>@Model.ResultsTitle</h2><span class="count">@Model.MatchingCount matching</span></div>
+            }
             @foreach (var company in Model.Companies)
             {
                 <div class="market-result"><form method="post" asp-page-handler="Refresh" class="company-search-result">
-                    <input type="hidden" name="Symbol" value="@company.Symbol" /><input type="hidden" name="Horizon" value="@Model.Horizon" />
+                    <input type="hidden" name="Country" value="@Model.Country" /><input type="hidden" name="Symbol" value="@company.Symbol" /><input type="hidden" name="Horizon" value="@Model.Horizon" />
                     <button class="stock-row search-result-button" type="submit"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small><small class="availability">@Model.ListingStatus(company.Symbol)</small></span><span>View →</span></button>
                 </form><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
             }
-            @if (Model.Companies.Length == 0)
-            { <p class="empty">No listings were returned for this selection. Try another market or company name. This does not confirm that the whole exchange is unavailable.</p> }
-            @if (Request.Query["handler"] == "Browse" && Model.SourceConfigured)
+            @if (Model.Countries.Length > 0 && Model.Companies.Length == 0)
+            { <p class="empty">No available companies match this search. Try another name or ticker, or clear the search.</p> }
+            @if (Model.MatchingCount > 24)
             {
-                <nav class="browse-pages" aria-label="Listing pages">
-                @if (Model.BrowseOffset > 0) { <a class="text-link" asp-page-handler="Browse" asp-route-Mic="@Model.Mic" asp-route-BrowseOffset="@(Math.Max(0, Model.BrowseOffset - 24))">← Previous</a> }
-                @if (Model.Companies.Length > 0 && Model.BrowseOffset <= 9976) { <a class="text-link" asp-page-handler="Browse" asp-route-Mic="@Model.Mic" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next listings →</a> }
+                <nav class="browse-pages" aria-label="Company pages">
+                    @if (Model.BrowseOffset > 0) { <a class="text-link" asp-page-handler="Browse" asp-route-Country="@Model.Country" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Math.Max(0, Model.BrowseOffset - 24))">← Previous</a> }
+                    @if (Model.BrowseOffset + 24 < Model.MatchingCount) { <a class="text-link" asp-page-handler="Browse" asp-route-Country="@Model.Country" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next companies →</a> }
                 </nav>
             }
-            <div class="setup-panel"><h2>Daily market data</h2><p class="muted">@(Model.DailyOnly ? "Marketstack supplies daily history. Browsing, searches and uncached prices use the shared API quota. Results are cached for 24 hours; server restarts clear the cache." : "Public data can be delayed or unavailable for individual listings.")</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
+            <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Country browsing and search use the verified catalogue without API requests. Data is cached for up to 24 hours; server restarts clear availability. Add more companies from Data sources.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
         </section>
         <div class="detail-column">
         @if (Model.Data is not { } data || Model.Result is not { } result)
         {
-            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose a popular company, browse an exchange, or search for a listing. You can also import an exported dataset on the Data sources page. Then choose a timeframe here.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p><a class="text-link" asp-page="/Data">Set up market data →</a></section>
+            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose an available country and company, or connect and check company data from Data sources. You can also import an exported dataset on the Data sources page. Then choose a timeframe here.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p><a class="text-link" asp-page="/Data">Set up market data →</a></section>
         }
         else
         {

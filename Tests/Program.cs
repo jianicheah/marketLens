@@ -315,6 +315,55 @@ Check("Invalid directory filters send no requests", () =>
     provider.SearchAsync("", default, "XNAS", -1).GetAwaiter().GetResult();
     Assert(handler.Requests == 0, "Invalid browsing input consumed quota.");
 });
+Check("Country catalogue starts empty and excludes demos and imports", () =>
+{
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    Assert(catalogue.Countries("Marketstack").Length == 0, "Unverified countries appeared before a price response.");
+    catalogue.Record("Marketstack", flat with { IsSample = true });
+    catalogue.Record("Marketstack", flat with { IsImported = true });
+    Assert(catalogue.Countries("Marketstack").Length == 0, "Fictional/imported data enabled a provider country.");
+});
+Check("Country selection and search use only verified companies in that country", () =>
+{
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    catalogue.Record("Marketstack", flat with { Symbol = "US.AAPL", Name = "Apple" });
+    catalogue.Record("Marketstack", flat with { Symbol = "MY.1155", Name = "Maybank", Currency = "MYR" });
+    Assert(catalogue.Countries("Marketstack").Length == 2 && catalogue.Countries("Marketstack").All(x => x.Count == 1), "Country counts are wrong.");
+    Assert(catalogue.Companies("Marketstack", "MY").Single().Symbol == "MY.1155", "Country selection did not show its company.");
+    Assert(catalogue.Companies("Marketstack", "MY", "Apple").Length == 0 && catalogue.Companies("Marketstack", "MY", "may").Length == 1, "Search leaked another country's company.");
+    Assert(catalogue.Companies("Yahoo Finance").Length == 0, "One provider enabled another provider's markets.");
+});
+Check("Directory results cannot enable a country before daily retrieval succeeds", () =>
+{
+    var handler = new FakeDirectoryHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), config, catalogue);
+    provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
+    Assert(provider.AvailableCountries.Length == 0, "Directory metadata was mistaken for price availability.");
+    provider.FetchAsync("US.BA", false, default).GetAwaiter().GetResult();
+    Assert(provider.AvailableCountries.Single().Code == "US" && provider.AvailableCompanies("US").Single().Symbol == "US.BA", "Successful retrieval did not enable its country/company.");
+    var before = handler.Requests;
+    provider.AvailableCompanies("US", "Boeing");
+    provider.FetchAsync("US.BA", false, default).GetAwaiter().GetResult();
+    Assert(handler.Requests == before, "Browsing or cached retrieval consumed additional requests.");
+});
+Check("Missing connection and failed price access leave countries unavailable", () =>
+{
+    var handler = new FakeMarketstackHandler { Status = HttpStatusCode.Forbidden };
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), config, catalogue);
+    Reject(() => provider.FetchAsync("US.AAPL", false, default).GetAwaiter().GetResult());
+    Assert(provider.AvailableCountries.Length == 0 && handler.Requests == 0, "Missing key enabled markets or sent requests.");
+    config["MarketData:MarketstackApiKey"] = "fixture-test-key";
+    Reject(() => provider.FetchAsync("US.AAPL", false, default).GetAwaiter().GetResult());
+    Assert(provider.AvailableCountries.Length == 0, "A rejected price request enabled a country.");
+});
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);

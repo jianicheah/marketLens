@@ -4,13 +4,32 @@
 <div class="workspace">
     <div class="intro"><div><p class="eyebrow">NO BROKERAGE LOGIN</p><h1>Market data, directly.</h1><p class="muted">@(Model.UsesMarketstack ? "Daily market research with an owner-managed API connection." : "Search listed companies and retrieve public data without provider sign-in.")</p></div></div>
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
-    <div class="dashboard">
+    <section class="panel setup-panel spaced">
+        <h2>Find and check companies</h2>
+        <p>Search the provider directory, then check daily data. A company and its country appear on the main page only after valid daily prices return. This does not enable every company in that country.</p>
+        @if (Model.SourceConfigured)
+        {
+            <form method="get" asp-page-handler="Search" class="search-form provider-search"><label class="sr-only" for="provider-query">Company name or ticker</label><input id="provider-query" name="Query" value="@Model.Query" placeholder="Company name or ticker, e.g. Apple" maxlength="80" required /><button type="submit">Find companies</button></form>
+            @foreach (var company in Model.Candidates)
+            {
+                <form method="post" asp-page-handler="Verify" class="market-result">
+                    <input type="hidden" name="listingSymbol" value="@company.Symbol" />
+                    <span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange · price access not yet checked</small></span><button type="submit">Check daily data</button>
+                </form>
+            }
+            @if (Request.Query["handler"] == "Search" && Model.Candidates.Length == 0 && Model.Notice is null)
+            { <p>No company listings matched. Try a ticker or another company name.</p> }
+        }
+        else { <p class="connection-note">Provider connection is not configured. Complete the setup below before finding and checking companies.</p> }
+        <a class="text-link" asp-page="/Index">View available countries and companies →</a>
+    </section>
+    <div class="dashboard spaced">
         @if (Model.UsesMarketstack) {
         <section class="panel setup-panel"><h2>Marketstack daily data</h2><p class="status">Personal daily research · No brokerage login</p>
-            <p>Start with popular companies, browse an exchange, or search the provider listing directory. Suggestions are not the full catalogue. Directory results identify listings; successful price retrieval confirms access for that listing. Each uncached directory page, search or price history uses API requests.</p>
+            <p>Use Find and check companies above to expand the verified catalogue. Provider searches and uncached price histories use API requests. Country browsing and searching companies already in the catalogue use no additional API requests.</p>
             <p>The free provider plan lists 100 requests per month. Prices are cached for 24 hours; Render sleep/restarts clear the cache, so returning later may consume another request. API quota is shared by your website, not granted separately to every visitor.</p>
             <p>Setup: create a free Marketstack account and set <code>MarketData__MarketstackApiKey</code> in Render Environment. Set <code>Hosting__OwnerPassword</code> to a private password of at least 12 characters. Website username: <code>owner</code>. Do not put either secret in GitHub. Save and redeploy.</p>
-            <p>Daily charts and weeks/months analysis are supported when complete adjusted prices are available. No live quotes, intraday signals or fundamental long-term analysis. Market filters include Malaysia and other exchanges. Their listing and daily-price access depend on the provider and your account plan; a filter does not guarantee coverage.</p>
+            <p>Daily charts and weeks/months analysis are supported when complete adjusted prices are available. No live quotes, intraday signals or fundamental long-term analysis. Only countries with successfully retrieved daily data appear on the main page. Missing connection settings, empty search results and failed price access are handled separately.</p>
             <a class="text-link" href="https://marketstack.com/pricing">Provider plan details →</a>
         </section>
         } else {
