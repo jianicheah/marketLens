@@ -414,6 +414,54 @@ Check("Incomplete historical rows shorten the recent segment without inventing p
     Reject(() => MarketstackDataProvider.Parse(invalid.RootElement, new("US.AAPL", "AAPL", "Apple", "NASDAQ"), now));
 });
 
+Check("Mixed currencies retain only the recent compatible segment and withhold short-history signals", () =>
+{
+    var payload = System.Text.Json.Nodes.JsonNode.Parse(FakeMarketstackHandler.Payload())!;
+    foreach (var row in payload["data"]!.AsArray()) row!["price_currency"] = "usd";
+    payload["data"]![11]!["price_currency"] = "EUR";
+    using var doc = JsonDocument.Parse(payload.ToJsonString());
+    var company = new CompanySearchResult("US.MSFT", "MSFT", "Microsoft", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD");
+    // Synthetic fixture prices, with identities changed to the listing under test.
+    using var matching = JsonDocument.Parse(doc.RootElement.GetRawText().Replace("AAPL", "MSFT"));
+    var data = MarketstackDataProvider.Parse(matching.RootElement, company, now);
+    Assert(data.Currency == "USD" && data.Daily.Length == 11, "Mixed currencies were joined or valid recent prices discarded.");
+    Assert(engine.Evaluate(data, "swing", false).Signal == "Insufficient data", "An unreliable short history generated a signal.");
+    payload["data"]![0]!["price_currency"] = "EUR";
+    using var wrongLatest = JsonDocument.Parse(payload.ToJsonString().Replace("AAPL", "MSFT"));
+    Reject(() => MarketstackDataProvider.Parse(wrongLatest.RootElement, company, now));
+});
+Check("Every listed company uses the shared fetch/cache path including exchange recovery", () =>
+{
+    var handler = new CataloguePricesHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), config, catalogue);
+    foreach (var company in provider.AvailableCompanies())
+    {
+        var data = provider.FetchListedAsync(company.Symbol, default).GetAwaiter().GetResult();
+        Assert(data.Symbol == company.Symbol && data.Daily.Length == 120, "Listing failed: " + company.Symbol);
+        Assert(engine.Evaluate(data, "swing", false).Signal == "Hold", "Analysis failed: " + company.Symbol);
+        var before = handler.Requests;
+        provider.FetchListedAsync(company.Symbol, default).GetAwaiter().GetResult();
+        Assert(handler.Requests == before, "Repeat view bypassed cache: " + company.Symbol);
+    }
+    Assert(handler.RecoveredExchange, "Empty price response did not resolve the provider directory exchange.");
+});
+Check("Failed requests preserve their reason during the retry pause", () =>
+{
+    var handler = new FakeMarketstackHandler { Status = HttpStatusCode.Forbidden };
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), config, catalogue);
+    string Message() { try { provider.FetchListedAsync("US.AAPL", default).GetAwaiter().GetResult(); return ""; } catch (InvalidDataException e) { return e.Message; } }
+    var first = Message(); var second = Message();
+    Assert(first.Contains("rejected the API key") && second.Contains(first) && second.Contains("Retry available") && handler.Requests == 1, "Retry lost the reason or consumed quota.");
+});
+
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);
@@ -482,6 +530,27 @@ sealed class FakeMarketstackHandler : HttpMessageHandler
         if (!request.RequestUri!.AbsolutePath.EndsWith("/v2/eod") || !request.RequestUri.Query.Contains("limit=1000")) throw new Exception("Unexpected Marketstack endpoint.");
         return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(Payload()) });
     }
+}
+
+sealed class CataloguePricesHandler : HttpMessageHandler
+{
+    public int Requests { get; private set; }
+    public bool RecoveredExchange { get; private set; }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        var uri = request.RequestUri!;
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        // Use a synthetic stale exchange for a company other than Walmart, to exercise generic recovery.
+        if (uri.AbsolutePath.EndsWith("/v1/tickers"))
+            return Reply("""{"data":[{"symbol":"MSFT","name":"Microsoft","has_eod":true,"stock_exchange":{"name":"Synthetic alternate US exchange","mic":"XNYS","country_code":"US"}}]}""");
+        var ticker = query["symbols"].ToString();
+        var mic = query["exchange"].ToString();
+        if (ticker == "MSFT" && mic == "XNAS") return Reply("""{"data":[]}""");
+        if (ticker == "MSFT" && mic == "XNYS") RecoveredExchange = true;
+        return Reply(FakeMarketstackHandler.Payload().Replace("AAPL", ticker).Replace("XNAS", mic));
+    }
+    private static Task<HttpResponseMessage> Reply(string body) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
 }
 
 sealed class FakeDirectoryHandler : HttpMessageHandler

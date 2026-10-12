@@ -22,7 +22,7 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation) => UsesMarketstack
         ? marketstack.SearchAsync(query, cancellation) : yahoo.SearchAsync(query, cancellation);
     private readonly SemaphoreSlim visitorGate = new(1, 1);
-    private readonly Dictionary<string, DateTimeOffset> failedUntil = new();
+    private readonly Dictionary<string, (DateTimeOffset Until, string Reason)> failedUntil = new();
     public async Task<MarketData> FetchListedAsync(string symbol, CancellationToken cancellation)
     {
         // Anonymous visitors can open the finite website list, never arbitrary provider symbols/searches.
@@ -35,15 +35,16 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
         {
             var cached = ReadAvailable(symbol);
             if (cached is not null) return cached;
-            foreach (var expired in failedUntil.Where(x => x.Value <= DateTimeOffset.UtcNow).Select(x => x.Key).ToArray())
+            foreach (var expired in failedUntil.Where(x => x.Value.Until <= DateTimeOffset.UtcNow).Select(x => x.Key).ToArray())
                 failedUntil.Remove(expired);
-            if (failedUntil.TryGetValue(symbol, out var until) && until > DateTimeOffset.UtcNow)
-                throw new InvalidDataException("Daily prices for this company are temporarily unavailable. Please try again in a few minutes.");
+            if (failedUntil.TryGetValue(symbol, out var failure) && failure.Until > DateTimeOffset.UtcNow)
+                throw new InvalidDataException(failure.Reason + " Retry available at " + failure.Until.ToOffset(TimeSpan.FromHours(8)).ToString("HH:mm:ss 'SGT'") + ".");
             try { return await FetchAsync(symbol, false, cancellation); }
             catch (Exception e) when (e is InvalidDataException or HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)
             {
-                failedUntil[symbol] = DateTimeOffset.UtcNow.AddMinutes(5);
-                throw;
+                var reason = e is InvalidDataException ? e.Message : "The daily-price request failed. Check the data connection.";
+                failedUntil[symbol] = (DateTimeOffset.UtcNow.AddMinutes(5), reason);
+                throw new InvalidDataException(reason);
             }
         }
         finally { visitorGate.Release(); }

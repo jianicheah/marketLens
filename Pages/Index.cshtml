@@ -40,7 +40,20 @@
         <div class="detail-column">
         @if (Model.Data is not { } data || Model.Result is not { } result)
         {
-            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose a company from the list to load its daily price chart and analysis. Prices come from the connected provider; no trading account login is needed.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p>@if (Model.CanManage) { <a class="text-link" asp-page="/Data">Manage market data →</a> }</section>
+            <section class="panel setup-panel">
+                @if (Model.Error is not null && Model.Symbol is not null)
+                {
+                    <p class="eyebrow">PRICES COULD NOT BE LOADED</p><h2>@Model.Symbol</h2>
+                    <p>The price request failed. The reason is shown above. No chart or investment signal is available until valid daily prices are retrieved.</p>
+                    <a class="text-link" asp-page="/Index" asp-route-Symbol="@Model.Symbol">Try loading prices again →</a>
+                }
+                else
+                {
+                    <p class="eyebrow">SELECT A COMPANY</p><h2>Choose a company to analyse.</h2>
+                    <p>Select View beside a company to load its daily prices, chart and analysis.</p>
+                }
+                <p>Buy and Sell are research signals from disclosed rules. If reliable history is too short, the analysis reports insufficient data.</p>
+            </section>
         }
         else
         {

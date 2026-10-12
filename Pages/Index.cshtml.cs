@@ -32,7 +32,9 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public AvailableCountry[] Countries => marketData.AvailableCountries;
     public int MatchingCount { get; private set; }
     public string ResultsTitle { get; private set; } = "Available companies";
-    public string ListingStatus(string symbol) => marketData.HasPrices(symbol) ? "Daily prices ready" : SourceConfigured ? "Daily prices · load on opening" : "Data connection not configured";
+    public string ListingStatus(string symbol) => marketData.ReadAvailable(symbol) is { } data
+        ? $"Daily prices ready · {data.Daily.Length} bars"
+        : SourceConfigured ? "Daily prices · load on opening" : "Data connection not configured";
     private void LoadCompanies()
     {
         // Old country links also open the complete website list.

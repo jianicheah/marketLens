@@ -8,6 +8,7 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private DateTimeOffset retryAfter;
+    private string? retryReason;
     // Popular shortcuts render without spending API requests; directory search is not limited to these suggestions.
     private static readonly CompanySearchResult[] Catalogue =
     [
@@ -76,9 +77,9 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
     private async Task<CompanySearchResult> ResolveAsync(string symbol, CancellationToken cancellation)
     {
         if (!DataValidation.ValidSymbol(symbol)) throw new InvalidDataException("Select a listing from Browse markets or search.");
+        if (cache.TryGetValue<CompanySearchResult>("marketstack-company:" + symbol, out var cached)) return cached!;
         var known = Popular.FirstOrDefault(x => x.Symbol == symbol);
         if (known is not null) return known;
-        if (cache.TryGetValue<CompanySearchResult>("marketstack-company:" + symbol, out var cached)) return cached!;
         if (!Configured) throw new InvalidDataException("The owner must configure the Marketstack API key before searching more listings.");
         var market = symbol[..symbol.IndexOf('.')];
         var code = symbol[(symbol.IndexOf('.') + 1)..];
@@ -94,25 +95,28 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
     {
         var apiKey = configuration["MarketData:MarketstackApiKey"];
         if (string.IsNullOrWhiteSpace(apiKey)) throw new InvalidDataException("The owner must set MarketData__MarketstackApiKey in Render Environment before fetching data.");
-        if (clock.GetUtcNow() < retryAfter) throw new InvalidDataException("Provider requests are paused after a rate or quota limit. Check remaining quota and retry later.");
+        if (clock.GetUtcNow() < retryAfter) throw new InvalidDataException(retryReason ?? "Provider requests are temporarily paused. Try again later.");
         try
         {
             using var response = await clients.CreateClient("Marketstack").GetAsync(path + "&access_key=" + Uri.EscapeDataString(apiKey), cancellation);
             if ((int)response.StatusCode == 429)
             {
                 retryAfter = clock.GetUtcNow().AddMinutes(5);
-                throw new InvalidDataException("Marketstack reached a rate or monthly quota limit. The free account allows 100 requests per month across browsing, search and prices.");
+                retryReason = "Marketstack reached a rate or monthly quota limit. Check the provider account's remaining quota; the free account shares 100 monthly requests across the website.";
+                throw new InvalidDataException(retryReason);
             }
             if (!response.IsSuccessStatusCode)
             {
                 retryAfter = clock.GetUtcNow().AddMinutes(1);
-                throw new InvalidDataException((int)response.StatusCode is 401 or 403 ? "The provider rejected the API key or this endpoint's plan access. Check the owner account." : "The provider is unavailable. Try later; no replacement prices are invented.");
+                retryReason = (int)response.StatusCode is 401 or 403 ? "The provider rejected the API key or this endpoint's plan access. Check the owner account." : "The provider is unavailable. Try later; no replacement prices are invented.";
+                throw new InvalidDataException(retryReason);
             }
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
             if (document.RootElement.TryGetProperty("error", out _))
             {
                 retryAfter = clock.GetUtcNow().AddMinutes(5);
-                throw new InvalidDataException("The provider returned an account, quota or access error. Check the owner dashboard.");
+                retryReason = "The provider returned an account, quota or access error. Check the owner dashboard.";
+                throw new InvalidDataException(retryReason);
             }
             return document.RootElement.Clone();
         }
@@ -133,6 +137,20 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
             var path = "v2/eod?symbols=" + Uri.EscapeDataString(company.ProviderSymbol) + "&limit=1000&sort=DESC&date_from=" + from;
             if (company.ExchangeMic is not null) path += "&exchange=" + Uri.EscapeDataString(company.ExchangeMic);
             var response = await RequestAsync(path, cancellation);
+            if (response.TryGetProperty("data", out var initialRows) && initialRows.ValueKind == JsonValueKind.Array && initialRows.GetArrayLength() == 0)
+            {
+                // Resolve stale exchange hints generically, without retrying account/quota failures.
+                // Already inside gate: calling SearchAsync here would deadlock.
+                var directory = await RequestAsync("v1/tickers?limit=24&search=" + Uri.EscapeDataString(company.ProviderSymbol), cancellation);
+                var resolved = ParseListings(directory).FirstOrDefault(x => x.Symbol == symbol);
+                if (resolved is not null && resolved.ExchangeMic != company.ExchangeMic)
+                {
+                    company = resolved with { Currency = resolved.Currency ?? company.Currency };
+                    cache.Set("marketstack-company:" + symbol, company, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
+                    path = "v2/eod?symbols=" + Uri.EscapeDataString(company.ProviderSymbol) + "&limit=1000&sort=DESC&date_from=" + from + "&exchange=" + Uri.EscapeDataString(company.ExchangeMic!);
+                    response = await RequestAsync(path, cancellation);
+                }
+            }
             var data = Parse(response, company, clock.GetUtcNow());
             cache.Set(key, data, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24) });
             return data;
@@ -159,9 +177,20 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
                 high >= Math.Max(open.Value, close.Value) && low <= Math.Min(open.Value, close.Value) && volume is >= 0 and <= 1000000000000000m;
         }
         rows = rows.OrderByDescending(TradingDate).ToArray();
+        static string? NormalizeCurrency(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim() is "GBp" or "ZAc" ? value.Trim() : value.Trim().ToUpperInvariant();
+        string? RowCurrency(JsonElement row) => NormalizeCurrency(Text(row, "price_currency") ?? Text(row, "currency"));
+        var latestCurrency = RowCurrency(rows[0]);
+        var listingCurrency = NormalizeCurrency(company.Currency);
+        if (latestCurrency is not null && listingCurrency is not null && latestCurrency != listingCurrency)
+            throw new InvalidDataException("The latest price currency does not match this listing. Prices cannot be analysed reliably.");
+        var currency = latestCurrency ?? listingCurrency ?? DataValidation.Currency(company.Symbol);
+        if (latestCurrency is null && (company.Symbol.StartsWith("UK.") || company.Symbol.StartsWith("ZA.")))
+            throw new InvalidDataException("Price currency/unit is missing; this listing cannot yet be analysed safely.");
         var adjusted = Complete(rows[0], "adj_");
-        // Stop at the first incomplete bar; never join older prices across a provider-data gap.
-        rows = rows.TakeWhile(row => Complete(row, adjusted ? "adj_" : "")).ToArray();
+        // Keep only a contiguous segment with complete prices and compatible currency.
+        // Never relabel foreign-currency prices or stitch across rejected rows.
+        rows = rows.TakeWhile(row => Complete(row, adjusted ? "adj_" : "") &&
+            (RowCurrency(row) is not { } rowCurrency || rowCurrency == currency)).ToArray();
         if (rows.Length == 0) throw new InvalidDataException("The latest provider price bar is incomplete. No reliable current series can be shown.");
         var omitted = allRows.Length - rows.Length;
         var prefix = adjusted ? "adj_" : "";
@@ -183,16 +212,9 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
             "Price history is cached for 24 hours to conserve the 100-request monthly quota. Render restarts clear this cache.",
             "The provider trading date uses a market-local date marker; this is not a verified closing or retrieval timestamp."
         };
-        if (omitted > 0) warnings.Add($"History shortened: {omitted} older rows were excluded at the first incomplete price/volume bar. Only the complete recent segment is used; missing prices were not filled.");
+        if (omitted > 0) warnings.Add($"History shortened: {omitted} older rows were excluded at the first incomplete price/volume bar or incompatible currency. Only the complete recent {currency} segment is used; prices were not filled, converted or joined across the rejected row.");
         if (adjusted) warnings.Add("Provider-adjusted OHLC is used; corporate-action adjustments may include dividends. Volume is provider-reported.");
         else warnings.Add("Adjusted OHLC is incomplete. Raw prices are shown, but trend signals and backtests are withheld.");
-        var currencies = allRows.Select(x => Text(x, "price_currency") ?? Text(x, "currency")).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToArray();
-        if (currencies.Length > 1) throw new InvalidDataException("The provider returned inconsistent price currencies.");
-        var currency = currencies.SingleOrDefault() ?? company.Currency;
-        if (currencies.Length == 0 && (company.Symbol.StartsWith("UK.") || company.Symbol.StartsWith("ZA.")))
-            throw new InvalidDataException("Price currency/unit is missing; this listing cannot yet be analysed safely.");
-        currency ??= DataValidation.Currency(company.Symbol);
-        if (currency is not ("GBp" or "ZAc")) currency = currency.ToUpperInvariant();
         var data = new MarketData(company.Symbol, company.Name, currency, "Daily market data via Marketstack", now, bars, [],
             SplitAdjusted: adjusted, Warnings: warnings.ToArray());
         DataValidation.Validate(data, now);
