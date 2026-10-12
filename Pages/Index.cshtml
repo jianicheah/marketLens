@@ -40,9 +40,15 @@
                 @if (data.Daily.Length > 1)
                 {
                     var chart = data.Daily.TakeLast(120).ToArray(); var min = chart.Min(b => b.Close); var range = Math.Max(chart.Max(b => b.Close) - min, 0.01m);
+                    var change = chart[^1].Close - chart[0].Close;
+                    var changePercent = change / chart[0].Close * 100m;
+                    var chartColor = change > 0 ? "#079a80" : change < 0 ? "#b84a45" : "#6b7f7a";
+                    var chartClass = change > 0 ? "positive" : change < 0 ? "negative" : "muted";
+                    var chartDirection = change > 0 ? "Up" : change < 0 ? "Down" : "Unchanged";
                     var points = string.Join(" ", chart.Select((b,i) => $"{(i * 600m / (chart.Length - 1)).ToString("0.##", CultureInfo.InvariantCulture)},{(150m - (b.Close - min) / range * 130m).ToString("0.##", CultureInfo.InvariantCulture)}"));
                     <div class="chart-label"><span>Daily closing prices</span><span>@chart.Length bars · @data.Currency</span></div>
-                    <svg class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Daily closing price chart for @data.Name"><path d="M0 40H600 M0 90H600 M0 140H600" stroke="#e8efed" fill="none" /><polyline points="@points" stroke="#079a80" stroke-width="3" fill="none" /></svg>
+                    <svg class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Daily closing price chart for @data.Name. @chartDirection over the displayed period."><path d="M0 40H600 M0 90H600 M0 140H600" stroke="#e8efed" fill="none" /><polyline points="@points" stroke="@chartColor" stroke-width="3" fill="none" /></svg>
+                    <p class="list-note @chartClass">@chartDirection @Math.Abs(changePercent).ToString("N2")% over the displayed period · last close versus first close</p>
                     <div class="chart-label"><span>@chart[0].Time.ToString("dd MMM yyyy")</span><span>@chart[^1].Time.ToString("dd MMM yyyy")</span></div>
                 }
                 @if (!data.IsSample) { <div class="inset spaced favourite-detail"><button type="button" class="outline favourite-toggle" data-symbol="@data.Symbol" data-name="@data.Name" aria-pressed="false" hidden>☆ Favourite</button></div> }
