@@ -10,43 +10,24 @@
         <section class="panel explorer">
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
             <div class="market-browser">
-                <div class="browser-heading"><h2>Available countries</h2>@if (Model.CanManage) { <a class="text-link" asp-page="/Data">Manage companies</a> }</div>
+                <div class="browser-heading"><h2>Companies on this website</h2><span class="count">@Model.MatchingCount shown</span></div>
+                <p class="muted">Browse the list below or search by company name or ticker. Search filters this list only. Daily prices load when you open a company.</p>
                 @if (!Model.SourceConfigured)
                 {
-                    <p class="connection-note">@(Model.CanManage ? "Connect a data provider in Manage data to publish company research." : "Market data is being prepared. Please check back later.") @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Set up connection →</a> }</p>
+                    <p class="connection-note">Daily prices are unavailable until the website owner connects the data provider. @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Set up connection →</a> }</p>
                 }
-                else if (Model.Countries.Length == 0)
-                {
-                    <p class="connection-note">@(Model.CanManage ? "Find a company in Manage data and check its prices to publish it here." : "The company catalogue is being updated. Please check back shortly.") @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Find companies →</a> }</p>
-                }
-                else
-                {
-                    <p class="muted">Choose a country to see its available companies. Counts include only companies with successfully retrieved daily prices.</p>
-                    <nav class="market-chips" aria-label="Available countries">
-                        <a class="market-chip @(Model.Country is null ? "active" : "")" asp-page="/Index">All countries</a>
-                        @foreach (var country in Model.Countries)
-                        {
-                            <a class="market-chip @(Model.Country == country.Code ? "active" : "")" asp-page-handler="Browse" asp-route-Country="@country.Code" aria-current="@(Model.Country == country.Code ? "page" : null)">@country.Name · @country.Count</a>
-                        }
-                    </nav>
-                }
-            </div>
-            @if (Model.Countries.Length > 0)
-            {
                 <form method="get" asp-page-handler="Search" class="search-form">
-                    <input type="hidden" name="Country" value="@Model.Country" />
-                    <label class="sr-only" for="query">Search available companies</label><input id="query" name="Query" value="@Model.Query" placeholder="@(Model.Country is null ? "Search available companies" : "Search companies in " + MarketLens.Services.AvailableCompanyCatalog.CountryName(Model.Country))" maxlength="80" />
+                    <label class="sr-only" for="query">Search this company list</label><input id="query" name="Query" value="@Model.Query" placeholder="Company name or ticker, e.g. Apple" maxlength="80" />
                     <button type="submit">Search</button>
-                    @if (!string.IsNullOrWhiteSpace(Model.Query)) { <a class="text-link clear-search" asp-page-handler="Browse" asp-route-Country="@Model.Country">Clear</a> }
+                    @if (!string.IsNullOrWhiteSpace(Model.Query)) { <a class="text-link clear-search" asp-page="/Index">Clear</a> }
                 </form>
-                <div class="browser-heading result-heading"><h2>@Model.ResultsTitle</h2><span class="count">@Model.MatchingCount matching</span></div>
-            }
+            </div>
             @foreach (var company in Model.Companies)
             {
                 <div class="market-result"><a class="stock-row search-result-button company-view" asp-page="/Index" asp-route-Symbol="@company.Symbol" asp-route-Country="@Model.Country" asp-route-Horizon="@Model.Horizon"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small><small class="availability">@Model.ListingStatus(company.Symbol)</small></span><span>View →</span></a><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
             }
-            @if (Model.Countries.Length > 0 && Model.Companies.Length == 0)
-            { <p class="empty">No available companies match this search. Try another name or ticker, or clear the search.</p> }
+            @if (Model.Companies.Length == 0)
+            { <p class="empty">This company is not in our website company list. Clear the search to see all listed companies.</p> }
             @if (Model.MatchingCount > 24)
             {
                 <nav class="browse-pages" aria-label="Company pages">
@@ -59,7 +40,7 @@
         <div class="detail-column">
         @if (Model.Data is not { } data || Model.Result is not { } result)
         {
-            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose an available country and company to view its chart and analysis. Research uses daily closing data published by the website owner.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p>@if (Model.CanManage) { <a class="text-link" asp-page="/Data">Manage market data →</a> }</section>
+            <section class="panel setup-panel"><p class="eyebrow">WAITING FOR DATA</p><h2>Start with a real source.</h2><p>Choose a company from the list to load its daily price chart and analysis. Prices come from the connected provider; no trading account login is needed.</p><p>Buy and Sell are research signals from disclosed rules. Sell means reviewing an existing holding; if you do not own the stock, it means avoiding entry.</p>@if (Model.CanManage) { <a class="text-link" asp-page="/Data">Manage market data →</a> }</section>
         }
         else
         {

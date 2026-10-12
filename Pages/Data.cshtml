@@ -6,7 +6,7 @@
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     <section class="panel setup-panel spaced">
         <h2>Find and check companies</h2>
-        <p>Search the provider directory, then check daily data. A company and its country appear on the main page only after valid daily prices return. This does not enable every company in that country.</p>
+        <p>The homepage already lists the supported US companies. To add another company, search the provider directory here and check its daily data. Successful checks add that company to the website list for this server session.</p>
         @if (Model.SourceConfigured)
         {
             <form method="get" asp-page-handler="Search" class="search-form provider-search"><label class="sr-only" for="provider-query">Company name or ticker</label><input id="provider-query" name="Query" value="@Model.Query" placeholder="Company name or ticker, e.g. Apple" maxlength="80" required /><button type="submit">Find companies</button></form>
@@ -21,15 +21,15 @@
             { <p>No company listings matched. Try a ticker or another company name.</p> }
         }
         else { <p class="connection-note">Provider connection is not configured. Complete the setup below before finding and checking companies.</p> }
-        <a class="text-link" asp-page="/Index">View available countries and companies →</a>
+        <a class="text-link" asp-page="/Index">View website company list →</a>
     </section>
     <div class="dashboard spaced">
         @if (Model.UsesMarketstack) {
         <section class="panel setup-panel"><h2>Marketstack daily data</h2><p class="status">Personal daily research · No brokerage login</p>
-            <p>Use Find and check companies above to expand the verified catalogue. Provider searches and uncached price histories use API requests. Country browsing and searching companies already in the catalogue use no additional API requests.</p>
+            <p>Use Find and check companies above to expand the verified catalogue. Provider searches and uncached price histories use API requests. Browsing and searching the website list use no API requests. Opening a listed company loads its prices when they are not cached.</p>
             <p>The free provider plan lists 100 requests per month. Prices are cached for 24 hours; Render sleep/restarts clear the cache, so returning later may consume another request. API quota is shared by your website, not granted separately to every visitor.</p>
             <p>Setup: create a free Marketstack account and set <code>MarketData__MarketstackApiKey</code> in Render Environment. Set <code>Hosting__OwnerPassword</code> to a private password of at least 12 characters. Website username: <code>owner</code>. Do not put either secret in GitHub. Save and redeploy.</p>
-            <p>Daily charts and weeks/months analysis are supported when complete adjusted prices are available. No live quotes, intraday signals or fundamental long-term analysis. Only countries with successfully retrieved daily data appear on the main page. Missing connection settings, empty search results and failed price access are handled separately.</p>
+            <p>Daily charts and weeks/months analysis are supported when complete adjusted prices are available. No live quotes, intraday signals or fundamental long-term analysis. The homepage shows the website company list directly, with no country selection or manual publishing step for the built-in companies. Missing connection settings, empty search results and failed price access are handled separately.</p>
             <a class="text-link" href="https://marketstack.com/pricing">Provider plan details →</a>
         </section>
         } else {

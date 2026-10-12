@@ -5,7 +5,7 @@ namespace MarketLens.Services;
 
 public sealed record AvailableCountry(string Code, string Name, int Count);
 
-// Contains successful price responses only, never directory suggestions or imported/demo data.
+// Remembers checked listings separately from expiring prices. Demo/import data never enters it.
 public sealed class AvailableCompanyCatalog(TimeProvider clock) : IDisposable
 {
     private readonly MemoryCache prices = new(new MemoryCacheOptions { SizeLimit = 128 });
@@ -20,7 +20,6 @@ public sealed class AvailableCompanyCatalog(TimeProvider clock) : IDisposable
         var company = new CompanySearchResult(data.Symbol, data.Symbol[(data.Symbol.IndexOf('.') + 1)..], data.Name, exchange, Currency: data.Currency);
         lock (gate)
         {
-            Prune();
             if (!entries.ContainsKey(key) && entries.Count >= 128)
             {
                 var oldest = entries.Keys.First();
@@ -30,16 +29,11 @@ public sealed class AvailableCompanyCatalog(TimeProvider clock) : IDisposable
             entries[key] = (source, company);
         }
     }
-    private void Prune()
-    {
-        foreach (var key in entries.Keys.Where(key => !prices.TryGetValue(key, out _)).ToArray()) entries.Remove(key);
-    }
     public MarketData? Read(string source, string symbol) => prices.TryGetValue<MarketData>(source + ":" + symbol, out var data) ? data : null;
     public CompanySearchResult[] Companies(string source, string? country = null, string? query = null)
     {
         lock (gate)
         {
-            Prune();
             return entries.Values.Where(x => x.Source == source && (country is null || CountryCode(x.Company.Symbol) == country))
                 .Select(x => x.Company).Where(x => string.IsNullOrWhiteSpace(query) || x.Name.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
                 .OrderBy(x => x.Name).ToArray();

@@ -32,15 +32,11 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public AvailableCountry[] Countries => marketData.AvailableCountries;
     public int MatchingCount { get; private set; }
     public string ResultsTitle { get; private set; } = "Available companies";
-    public string ListingStatus(string symbol) => "Daily data available · cached";
+    public string ListingStatus(string symbol) => marketData.HasPrices(symbol) ? "Daily prices ready" : SourceConfigured ? "Daily prices · load on opening" : "Data connection not configured";
     private void LoadCompanies()
     {
-        if (!SourceConfigured) { Companies = []; MatchingCount = 0; return; }
-        if (Country is not null && !Countries.Any(x => x.Code == Country))
-        {
-            Error = "This country has no verified daily data in the current catalogue. Choose one of the available countries below.";
-            Country = null; BrowseOffset = 0;
-        }
+        // Old country links also open the complete website list.
+        Country = null;
         if (BrowseOffset is < 0 or > 10000) BrowseOffset = 0;
         if (Query?.Length > 80) { Error = "Search must be 80 characters or fewer."; Companies = []; MatchingCount = 0; return; }
         ResultsTitle = Country is null ? "Available companies" : AvailableCompanyCatalog.CountryName(Country) + " companies";
@@ -53,11 +49,11 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     {
         NormalizeHorizon();
         Symbol = Symbol?.Trim().ToUpperInvariant();
-        if (!Demo && CanManage && (store.IsPublic || AutoFetch) && DataValidation.ValidSymbol(Symbol))
+        if (!Demo && DataValidation.ValidSymbol(Symbol))
         {
-            try { store.Save(await marketData.FetchAsync(Symbol!, Horizon == "day", cancellation)); }
+            try { store.Save(await marketData.FetchListedAsync(Symbol!, cancellation)); }
             catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
-            { Error = e is InvalidDataException ? e.Message : "Market data is unavailable. Try Fetch latest data again shortly."; }
+            { Error = e is InvalidDataException ? e.Message : "Daily prices could not be loaded. Please try again shortly."; }
         }
         OnGet();
     }
@@ -75,7 +71,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
             {
                 Symbol ??= Symbols.FirstOrDefault();
                 if (Symbol is not null && DataValidation.ValidSymbol(Symbol)) Data = marketData.ReadAvailable(Symbol) ?? store.Read(Symbol);
-                if (Symbol is not null && Data is null && !CanManage) Error = "This company is not currently published. Choose an available company or try again after the owner updates the catalogue.";
+                if (Symbol is not null && Data is null && Error is null) Error = "Daily prices could not be loaded for this company. Please try again shortly.";
             }
             if (Data is not null)
             {

@@ -32,16 +32,16 @@ Render can auto-deploy the pushed commit. Otherwise select Manual Deploy → Dep
 
 ## Owner management and visitors
 
-Visitors open the main website without a shared username or password. They browse published companies, filter by country, view charts/analysis and save favourites in their own browser. Their requests cannot initiate provider searches or price fetches.
+Visitors open the main website without a shared username or password. The homepage immediately lists Apple, Microsoft, NVIDIA, Amazon, Alphabet, Meta, Tesla, JPMorgan Chase, Visa and Walmart. Search filters this website list by name or ticker without provider requests. Opening a listed company fetches daily prices if needed, then shares the 24-hour cache across visitors. Prices are not claimed to be available until retrieval succeeds. Favourites are saved in each browser.
 
 To manage data on Render, use **Owner sign in** at `/Owner`:
 
 - Username: `owner` unless overridden by `Hosting__OwnerUser`.
 - Password: the value of `Hosting__OwnerPassword`.
 
-After signing in, open **Manage data → Find and check companies**, search **Apple**, then select **Check daily data**. Valid data publishes the company under its country. Directory results alone never enable country choices. Add more companies through the same management flow. Owner credentials are never shared with visitors.
+Apple needs no manual publishing: select Apple on the homepage. To add more companies, the owner can use **Manage data → Find and check companies**. A successful daily-price check adds the listing to the homepage catalogue for this server session. Provider directory searches remain owner-only. Owner credentials are never shared with visitors.
 
-Provider searches and uncached histories consume quota. Visitor browsing/searching uses the verified cached catalogue. It contains checked companies, not every listed company in a country. The cache holds up to 128 companies for up to 24 hours. Server restarts clear it, so the owner must repopulate it. Visitor favourites remain saved, but unpublished favourites cannot trigger API calls.
+Provider searches and uncached histories consume the shared API quota. Anonymous fetching is restricted to companies in the website list; arbitrary symbols are rejected before a provider call. Failed visitor fetches back off for five minutes. The cache holds up to 128 checked companies for up to 24 hours. Checked company names remain listed after their prices expire within the server session. Server restarts clear prices and owner-added listings; the ten built-in companies remain visible. Visitor favourites remain saved. Quota exhaustion or provider errors can still prevent loading prices; the UI reports the error and keeps the company list visible. This version does not include every company worldwide.
 
 ## Price quality and verification limits
 
@@ -49,6 +49,6 @@ Daily-price rows are matched to the requested symbol/exchange. The parser retain
 
 The live Apple response contained 250 rows, including null closes and missing adjusted OHLC. Its complete recent adjusted segment contained 84 bars. That is enough for the existing 60-bar swing screen, but below the 90-bar backtest threshold. No day-trading or fundamental long-term analysis is supplied by this connector.
 
-Application and test projects compile. The 44-check suite includes history-gap and owner-route regression checks, but has not been confirmed passing: an earlier executable attempt was blocked by Windows Application Control. Browser sign-in, the updated app's complete fetch/analysis flow and the latest Render deployment remain unverified. Live provider connectivity is verified independently of the UI.
+Application and test projects compile. The 46-check suite includes history-gap and owner-route regression checks, but has not been confirmed passing: an earlier executable attempt was blocked by Windows Application Control. Browser sign-in, the updated app's complete fetch/analysis flow and the latest Render deployment remain unverified. Live provider connectivity is verified independently of the UI.
 
 Sources: https://marketstack.com/pricing/, https://marketstack-wp.apilayer.green/documentation/

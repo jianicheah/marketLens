@@ -344,7 +344,7 @@ Check("Directory results cannot enable a country before daily retrieval succeeds
     provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
     Assert(provider.AvailableCountries.Length == 0, "Directory metadata was mistaken for price availability.");
     provider.FetchAsync("US.BA", false, default).GetAwaiter().GetResult();
-    Assert(provider.AvailableCountries.Single().Code == "US" && provider.AvailableCompanies("US").Single().Symbol == "US.BA", "Successful retrieval did not enable its country/company.");
+    Assert(provider.AvailableCountries.Single().Code == "US" && provider.AvailableCompanies("US", "Boeing").Single().Symbol == "US.BA", "Successful retrieval did not add its company.");
     var before = handler.Requests;
     provider.AvailableCompanies("US", "Boeing");
     provider.FetchAsync("US.BA", false, default).GetAwaiter().GetResult();
@@ -364,7 +364,35 @@ Check("Missing connection and failed price access leave countries unavailable", 
     Reject(() => provider.FetchAsync("US.AAPL", false, default).GetAwaiter().GetResult());
     Assert(provider.AvailableCountries.Length == 0, "A rejected price request enabled a country.");
 });
-Check("Public browsing stays open while provider actions require the owner", () =>
+Check("Website list includes Apple before fetching and search only filters that list", () =>
+{
+    var handler = new FakeMarketstackHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), config, catalogue);
+    Assert(provider.AvailableCompanies().Length == MarketstackDataProvider.Popular.Length, "Initial website list is empty.");
+    Assert(provider.AvailableCompanies(query: " apple ").Single().Symbol == "US.AAPL", "Apple cannot be found before fetching.");
+    Assert(provider.AvailableCompanies(query: "aapl").Single().Symbol == "US.AAPL", "Ticker search failed.");
+    Assert(provider.AvailableCompanies(query: "unknown company").Length == 0 && handler.Requests == 0, "List filtering sent provider requests or invented a company.");
+    Assert(!provider.HasPrices("US.AAPL"), "A directory entry claimed to contain fetched prices.");
+});
+Check("Visitors can load listed Apple prices once but cannot fetch arbitrary symbols", () =>
+{
+    var handler = new FakeMarketstackHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), config, catalogue);
+    Reject(() => provider.FetchListedAsync("US.UNLISTED", default).GetAwaiter().GetResult());
+    Assert(handler.Requests == 0, "An unlisted company consumed API quota.");
+    var data = provider.FetchListedAsync("US.AAPL", default).GetAwaiter().GetResult();
+    provider.FetchListedAsync("US.AAPL", default).GetAwaiter().GetResult();
+    Assert(data.Symbol == "US.AAPL" && data.Daily.Length > 0 && handler.Requests == 1, "Opening Apple failed or repeat views consumed quota.");
+});
+Check("Public browsing stays open while provider management requires the owner", () =>
 {
     Assert(!OwnerAccess.RequiresOwner("/", null) && !OwnerAccess.RequiresOwner("/", "Search") && !OwnerAccess.RequiresOwner("/", "Browse"), "Visitor browsing requires owner access.");
     Assert(!OwnerAccess.RequiresOwner("/Owner", null) && !OwnerAccess.RequiresOwner("/health", null), "Login or health is protected.");
