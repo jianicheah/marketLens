@@ -1,6 +1,6 @@
 # Current data source: Marketstack personal starter version
 
-See [Marketstack-setup.md](Marketstack-setup.md) to configure the owner API key and website password on Render before pushing this update. Daily data only; 10 US stocks, 100 monthly requests. All 34 checks passed using response fixtures; live Marketstack retrieval has not yet been verified. Earlier Yahoo features below describe the optional legacy connector selected only with MarketData:Provider=Yahoo.
+See [Marketstack-setup.md](Marketstack-setup.md) to configure the owner API key and website password on Render before pushing this update. Daily data only, with popular shortcuts and provider directory browsing/search. The free plan has a shared 100-request monthly quota; directory browsing also uses requests. Exchange filters do not guarantee plan coverage. See the setup guide for verification limits; live Marketstack coverage has not yet been verified. Earlier Yahoo features below describe the optional legacy connector selected only with MarketData:Provider=Yahoo.
 
 # Render Free deployment
 

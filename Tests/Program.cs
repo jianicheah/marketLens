@@ -225,7 +225,7 @@ Check("Public dataset cache writes no files and rejects visitor imports", () =>
     Assert(restarted.Read(data.Symbol) is null, "Restart unexpectedly depended on persistent data.");
 });
 
-Check("Marketstack search is local and missing owner key sends no requests", () =>
+Check("Popular suggestions work without a key and missing owner key sends no requests", () =>
 {
     var handler = new FakeMarketstackHandler();
     var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
@@ -279,6 +279,42 @@ Check("Owner-only access rejects missing, malformed and incorrect credentials", 
     Assert(!OwnerAccess.Accepts("Basic %invalid", "owner", "fixture-password-123") && !OwnerAccess.Accepts("", "owner", "fixture-password-123"), "Malformed credentials accepted.");
 });
 
+Check("Market directory parses non-starter and international listings without inventing coverage", () =>
+{
+    using var doc = JsonDocument.Parse(FakeDirectoryHandler.Listings);
+    var listings = MarketstackDataProvider.ParseListings(doc.RootElement);
+    Assert(listings.Length == 3 && listings.Any(x => x.Symbol == "US.BA") && listings.Any(x => x.Symbol == "MY.1155") && listings.Any(x => x.Symbol == "HK.700"), "International or non-starter listing was omitted.");
+    Assert(listings.Single(x => x.Symbol == "MY.1155").ExchangeMic == "XKLS", "Listing exchange was lost.");
+});
+Check("Directory browsing and searches cache results and fetch a non-starter stock", () =>
+{
+    var handler = new FakeDirectoryHandler();
+    var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+    var listings = provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
+    provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
+    var data = provider.FetchAsync("US.BA", default).GetAwaiter().GetResult();
+    Assert(handler.Requests == 2 && data.Symbol == "US.BA" && provider.HasPrices("US.BA"), "Search cache or non-starter price access failed.");
+    provider.SearchAsync("", default, "XKLS", 24).GetAwaiter().GetResult();
+    Assert(handler.LastQuery.Contains("exchange=XKLS") && handler.LastQuery.Contains("offset=24"), "Browse market/page filter was lost.");
+});
+Check("International daily prices retain exchange, currency and local date", () =>
+{
+    using var doc = JsonDocument.Parse(FakeMarketstackHandler.Payload().Replace("AAPL", "1155").Replace("XNAS", "XKLS"));
+    var listing = new CompanySearchResult("MY.1155", "1155", "Maybank", "Bursa", ExchangeMic: "XKLS", Currency: "MYR");
+    var data = MarketstackDataProvider.Parse(doc.RootElement, listing, now);
+    Assert(data.Currency == "MYR" && DataValidation.LocalTime(data.Symbol, data.Daily[^1].Time).Date == now.AddDays(-1).Date, "International currency or trading date incorrect.");
+    Reject(() => MarketstackDataProvider.Parse(doc.RootElement, listing with { ExchangeMic = "XSES" }, now));
+});
+Check("Invalid directory filters send no requests", () =>
+{
+    var handler = new FakeDirectoryHandler();
+    var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+    Assert(provider.SearchAsync("", default, "invalid", 0).GetAwaiter().GetResult().Length == 0, "Invalid filter accepted.");
+    provider.SearchAsync("", default, "XNAS", -1).GetAwaiter().GetResult();
+    Assert(handler.Requests == 0, "Invalid browsing input consumed quota.");
+});
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);
@@ -346,5 +382,27 @@ sealed class FakeMarketstackHandler : HttpMessageHandler
         Requests++;
         if (!request.RequestUri!.AbsolutePath.EndsWith("/v2/eod") || !request.RequestUri.Query.Contains("limit=1000")) throw new Exception("Unexpected Marketstack endpoint.");
         return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(Payload()) });
+    }
+}
+
+sealed class FakeDirectoryHandler : HttpMessageHandler
+{
+    public int Requests { get; private set; }
+    public string LastQuery { get; private set; } = "";
+    public const string Listings = """
+    {"data":[
+      {"name":"Boeing","symbol":"BA","has_eod":true,"stock_exchange":{"name":"NYSE","mic":"XNYS","country_code":"US"}},
+      {"name":"Maybank","symbol":"1155","has_eod":true,"currency":"MYR","stock_exchange":{"name":"Bursa","mic":"XKLS","country_code":"MY"}},
+      {"name":"Tencent","symbol":"700","has_eod":true,"stock_exchange":{"name":"Hong Kong","mic":"XHKG","country_code":"HK"}},
+      {"name":"No daily data","symbol":"NONE","has_eod":false,"stock_exchange":{"mic":"XNAS","country_code":"US"}},
+      {"name":"Unknown market","symbol":"UNKNOWN","has_eod":true,"stock_exchange":{"mic":"????","country_code":"??"}}
+    ]}
+    """;
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++; LastQuery = request.RequestUri!.Query;
+        var path = request.RequestUri.AbsolutePath;
+        var body = path.EndsWith("/v2/tickers") ? Listings : FakeMarketstackHandler.Payload().Replace("AAPL", "BA").Replace("XNAS", "XNYS");
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
     }
 }

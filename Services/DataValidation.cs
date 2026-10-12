@@ -7,17 +7,18 @@ public static partial class DataValidation
     [GeneratedRegex(@"^(US|HK|MY|SG|JP|SH|SZ|BJ|AU|CA|KR|UK|DE|FR|IN|TW|ID|TH|NZ|BR|MX|ZA|NL|IT|CH|ES)\.[A-Z0-9][A-Z0-9.\-]{0,24}$")]
     private static partial Regex SymbolPattern();
     public static bool ValidSymbol(string? value) => value is not null && SymbolPattern().IsMatch(value);
-    public static DateTimeOffset LocalTime(string symbol, DateTimeOffset time)
+    public static string ZoneId(string symbol)
     {
-        var zone = symbol.Split('.')[0] switch
+        return symbol.Split('.')[0] switch
         {
             "US" or "CA" => "Eastern Standard Time", "JP" or "KR" => "Tokyo Standard Time",
             "AU" => "AUS Eastern Standard Time", "UK" => "GMT Standard Time", "DE" or "FR" or "NL" or "IT" or "CH" or "ES" => "W. Europe Standard Time",
             "IN" => "India Standard Time", "ID" or "TH" => "SE Asia Standard Time", "NZ" => "New Zealand Standard Time",
             "BR" => "E. South America Standard Time", "MX" => "Central Standard Time (Mexico)", "ZA" => "South Africa Standard Time", _ => "Singapore Standard Time"
         };
-        return TimeZoneInfo.ConvertTime(time, TimeZoneInfo.FindSystemTimeZoneById(zone));
+
     }
+    public static DateTimeOffset LocalTime(string symbol, DateTimeOffset time) => TimeZoneInfo.ConvertTime(time, TimeZoneInfo.FindSystemTimeZoneById(ZoneId(symbol)));
     public static string Currency(string symbol) => symbol.Split('.')[0] switch
     {
         "US" => "USD", "HK" => "HKD", "MY" => "MYR", "SG" => "SGD", "JP" => "JPY",

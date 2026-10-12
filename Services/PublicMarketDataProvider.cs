@@ -5,7 +5,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace MarketLens.Services;
 
 public sealed record CompanySearchResult(string Symbol, string ProviderSymbol, string Name, string Exchange,
-    string? Sector = null, string? Industry = null);
+    string? Sector = null, string? Industry = null, string? ExchangeMic = null, string? Currency = null);
 
 // Public Yahoo responses were checked directly. This is an unofficial personal-use adapter.
 // No brokerage login, cookies, token, API key or user portfolio is sent to the provider.

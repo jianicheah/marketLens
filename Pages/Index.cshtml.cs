@@ -25,6 +25,13 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public bool AiEnabled => ai.Enabled;
     public string[] Symbols { get; private set; } = [];
     public CompanySearchResult[] Companies { get; private set; } = [];
+    [BindProperty(SupportsGet = true)] public string? Mic { get; set; }
+    [BindProperty(SupportsGet = true), Range(0, 10000)] public int BrowseOffset { get; set; }
+    public bool SourceConfigured => marketData.Configured;
+    public bool DirectoryResults { get; private set; }
+    public bool CanBrowse => marketData.UsesMarketstack;
+    public string ResultsTitle { get; private set; } = "Popular companies";
+    public string ListingStatus(string symbol) => marketData.HasPrices(symbol) ? "Daily prices cached" : DirectoryResults ? "Listing found · prices not checked" : "Suggested · prices not checked";
 
     [BindProperty(SupportsGet = true)] public bool AutoFetch { get; set; }
     public async Task OnGetAsync(CancellationToken cancellation)
@@ -42,6 +49,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     private void OnGet()
     {
         NormalizeHorizon();
+        Companies = marketData.Popular;
         if (CostBps is < 0 or > 100) { Error = "Costs must be 0–100 basis points per side."; CostBps = 10; }
         try
         {
@@ -70,12 +78,27 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public async Task<IActionResult> OnGetSearchAsync(CancellationToken cancellation)
     {
         OnGet();
+        ResultsTitle = "Search results";
+        Companies = [];
+        if (Mic is not null && MarketDirectory.Find(Mic) is null) { Error = "Choose a market from the list."; return Page(); }
         if (!string.IsNullOrWhiteSpace(Query))
         {
-            try { Companies = await marketData.SearchAsync(Query, cancellation); }
+            try { Companies = await marketData.FindAsync(Query, Mic, cancellation); DirectoryResults = SourceConfigured; }
             catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
-            { Error = e is InvalidDataException ? e.Message : "Company search is unavailable. You can still enter a known symbol or use saved data."; }
+            { Error = e is InvalidDataException ? e.Message : "Company search is unavailable. Try again later or open a favourite."; }
         }
+        return Page();
+    }
+    public async Task<IActionResult> OnGetBrowseAsync(CancellationToken cancellation)
+    {
+        OnGet();
+        Companies = [];
+        var market = MarketDirectory.Find(Mic ?? "");
+        if (market is null || BrowseOffset is < 0 or > 10000) { Error = "Choose a market from the list."; return Page(); }
+        ResultsTitle = market.Name;
+        try { Companies = await marketData.BrowseAsync(market.Mic, BrowseOffset, cancellation); DirectoryResults = SourceConfigured; }
+        catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
+        { Error = e is InvalidDataException ? e.Message : "The listing directory is unavailable. Try again later or open a favourite."; }
         return Page();
     }
     public async Task<IActionResult> OnPostRefreshAsync(CancellationToken cancellation)

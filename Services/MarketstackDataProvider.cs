@@ -8,7 +8,7 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private DateTimeOffset retryAfter;
-    // A bounded catalogue saves the free quota for historical prices rather than metadata searches.
+    // Popular shortcuts render without spending API requests; directory search is not limited to these suggestions.
     private static readonly CompanySearchResult[] Catalogue =
     [
         new("US.AAPL", "AAPL", "Apple Inc.", "NASDAQ"),
@@ -22,49 +22,117 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
         new("US.V", "V", "Visa Inc.", "NYSE"),
         new("US.WMT", "WMT", "Walmart Inc.", "NASDAQ")
     ];
-    public Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation)
+    public static CompanySearchResult[] Popular => Catalogue.Select(x => x with
+        { ExchangeMic = x.Exchange == "NYSE" ? "XNYS" : "XNAS", Currency = "USD" }).ToArray();
+    public bool Configured => !string.IsNullOrWhiteSpace(configuration["MarketData:MarketstackApiKey"]);
+    public bool HasPrices(string symbol) => cache.TryGetValue<MarketData>("marketstack:" + symbol, out _);
+    public async Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation, string? mic = null, int offset = 0)
     {
         query = query.Trim();
-        return Task.FromResult(query.Length is < 1 or > 80 ? [] : Catalogue.Where(x =>
-            x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray());
-    }
-    public async Task<MarketData> FetchAsync(string symbol, CancellationToken cancellation)
-    {
-        var company = Catalogue.FirstOrDefault(x => x.Symbol == symbol) ?? throw new InvalidDataException(
-            "The free personal version supports the 10 US starter stocks shown in search. Malaysia and other markets are not enabled.");
-        var apiKey = configuration["MarketData:MarketstackApiKey"];
-        if (string.IsNullOrWhiteSpace(apiKey)) throw new InvalidDataException(
-            "Marketstack is not configured yet. The website owner must set MarketData__MarketstackApiKey in Render Environment and redeploy. Visitors do not need an API key.");
-        var key = "marketstack:" + symbol;
-        if (cache.TryGetValue<MarketData>(key, out var cached)) return cached!;
+        if (query.Length > 80 || offset < 0 || offset > 10000 || mic is not null && MarketDirectory.Find(mic) is null) return [];
+        var key = $"marketstack-list:{mic}:{query.ToUpperInvariant()}:{offset}";
+        if (cache.TryGetValue<CompanySearchResult[]>(key, out var cached)) return cached!;
+        // Searching a familiar name can still work during initial setup; this is not the universe limit.
+        if (!Configured) return Popular.Where(x => (mic is null || x.ExchangeMic == mic) &&
+            (query.Length == 0 || x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query, StringComparison.OrdinalIgnoreCase))).ToArray();
         await gate.WaitAsync(cancellation);
         try
         {
-            if (cache.TryGetValue<MarketData>(key, out cached)) return cached!;
-            if (clock.GetUtcNow() < retryAfter) throw new InvalidDataException("Marketstack requests are paused after a quota or rate-limit response. Retry later; no new data was retrieved.");
-            var from = clock.GetUtcNow().AddDays(-364).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            // Marketstack documents query-string key authentication; HttpClient logging is disabled in Program.
-            var path = "v2/eod?symbols=" + Uri.EscapeDataString(company.ProviderSymbol) + "&limit=1000&sort=DESC&date_from=" + from + "&access_key=" + Uri.EscapeDataString(apiKey);
-            using var response = await clients.CreateClient("Marketstack").GetAsync(path, cancellation);
+            if (cache.TryGetValue<CompanySearchResult[]>(key, out cached)) return cached!;
+            var path = "v2/tickers?limit=24&offset=" + offset;
+            if (query.Length > 0) path += "&search=" + Uri.EscapeDataString(query);
+            if (mic is not null) path += "&exchange=" + Uri.EscapeDataString(mic);
+            var document = await RequestAsync(path, cancellation);
+            var results = ParseListings(document).Where(x => mic is null || x.ExchangeMic == mic).ToArray();
+            foreach (var listing in results)
+                cache.Set("marketstack-company:" + listing.Symbol, listing, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
+            cache.Set(key, results, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
+            return results;
+        }
+        finally { gate.Release(); }
+    }
+    public static CompanySearchResult[] ParseListings(JsonElement root)
+    {
+        if (!root.TryGetProperty("data", out var rows) || rows.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("The provider did not return a listing directory.");
+        var listings = new List<CompanySearchResult>();
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (row.TryGetProperty("has_eod", out var eod) && eod.ValueKind == JsonValueKind.False) continue;
+            if (!row.TryGetProperty("stock_exchange", out var exchange) || exchange.ValueKind != JsonValueKind.Object) continue;
+            var mic = Text(exchange, "mic");
+            var market = mic is null ? null : MarketDirectory.MarketFor(mic, Text(exchange, "country_code"));
+            var ticker = Text(row, "symbol")?.ToUpperInvariant();
+            var name = Text(row, "name");
+            if (market is null || ticker is null || name is null || name.Length > 150) continue;
+            var symbol = market + "." + ticker;
+            if (!DataValidation.ValidSymbol(symbol)) continue;
+            var currency = Text(row, "currency") ?? Text(exchange, "currency");
+            listings.Add(new(symbol, ticker, name, Text(exchange, "name") ?? mic!, ExchangeMic: mic, Currency: currency));
+        }
+        return listings.DistinctBy(x => x.Symbol).ToArray();
+    }
+    private async Task<CompanySearchResult> ResolveAsync(string symbol, CancellationToken cancellation)
+    {
+        if (!DataValidation.ValidSymbol(symbol)) throw new InvalidDataException("Select a listing from Browse markets or search.");
+        var known = Popular.FirstOrDefault(x => x.Symbol == symbol);
+        if (known is not null) return known;
+        if (cache.TryGetValue<CompanySearchResult>("marketstack-company:" + symbol, out var cached)) return cached!;
+        if (!Configured) throw new InvalidDataException("The owner must configure the Marketstack API key before searching more listings.");
+        var market = symbol[..symbol.IndexOf('.')];
+        var code = symbol[(symbol.IndexOf('.') + 1)..];
+        var exchanges = MarketDirectory.Choices.Where(x => x.Market == market).ToArray();
+        var filter = exchanges.Length == 1 ? exchanges[0].Mic : null;
+        var matches = await SearchAsync(code, cancellation, filter);
+        // Exact ticker/exchange matching avoids opening a similarly named company in another country.
+        var match = matches.FirstOrDefault(x => x.Symbol == symbol ||
+            market == "HK" && x.Symbol.StartsWith("HK.", StringComparison.Ordinal) && code.All(char.IsAsciiDigit) && x.ProviderSymbol.All(char.IsAsciiDigit) && x.ProviderSymbol.TrimStart('0') == code.TrimStart('0'));
+        return match is null ? throw new InvalidDataException("No matching daily-data listing was returned. Browse that market to choose the provider's exact listing; absence is not proof the whole market is unsupported.") : match with { Symbol = symbol };
+    }
+    private async Task<JsonElement> RequestAsync(string path, CancellationToken cancellation)
+    {
+        var apiKey = configuration["MarketData:MarketstackApiKey"];
+        if (string.IsNullOrWhiteSpace(apiKey)) throw new InvalidDataException("The owner must set MarketData__MarketstackApiKey in Render Environment before fetching data.");
+        if (clock.GetUtcNow() < retryAfter) throw new InvalidDataException("Provider requests are paused after a rate or quota limit. Check remaining quota and retry later.");
+        try
+        {
+            using var response = await clients.CreateClient("Marketstack").GetAsync(path + "&access_key=" + Uri.EscapeDataString(apiKey), cancellation);
             if ((int)response.StatusCode == 429)
             {
                 retryAfter = clock.GetUtcNow().AddMinutes(5);
-                throw new InvalidDataException("Marketstack has reached a rate or monthly quota limit. The free plan allows 100 requests per month; check your provider dashboard.");
+                throw new InvalidDataException("Marketstack reached a rate or monthly quota limit. The free account allows 100 requests per month across browsing, search and prices.");
             }
             if (!response.IsSuccessStatusCode)
             {
                 retryAfter = clock.GetUtcNow().AddMinutes(1);
-                throw new InvalidDataException((int)response.StatusCode is 401 or 403
-                    ? "Marketstack rejected the key or account permissions. Check your API key and free-plan access in its dashboard."
-                    : "Marketstack could not supply data. Try later; no fictional fallback is used.");
+                throw new InvalidDataException((int)response.StatusCode is 401 or 403 ? "The provider rejected the API key or this endpoint's plan access. Check the owner account." : "The provider is unavailable. Try later; no replacement prices are invented.");
             }
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
             if (document.RootElement.TryGetProperty("error", out _))
             {
                 retryAfter = clock.GetUtcNow().AddMinutes(5);
-                throw new InvalidDataException("Marketstack returned an API error. Check your key, plan and remaining quota in its dashboard.");
+                throw new InvalidDataException("The provider returned an account, quota or access error. Check the owner dashboard.");
             }
-            var data = Parse(document.RootElement, company, clock.GetUtcNow());
+            return document.RootElement.Clone();
+        }
+        catch (HttpRequestException) { throw new InvalidDataException("The data connection failed. Try later; saved prices are unchanged."); }
+    }
+    private static string? Text(JsonElement row, string field) => row.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    public async Task<MarketData> FetchAsync(string symbol, CancellationToken cancellation)
+    {
+        var key = "marketstack:" + symbol;
+        if (cache.TryGetValue<MarketData>(key, out var cached)) return cached!;
+        var company = await ResolveAsync(symbol, cancellation);
+        await gate.WaitAsync(cancellation);
+        try
+        {
+            if (cache.TryGetValue<MarketData>(key, out cached)) return cached!;
+            var from = clock.GetUtcNow().AddDays(-364).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var path = "v2/eod?symbols=" + Uri.EscapeDataString(company.ProviderSymbol) + "&limit=1000&sort=DESC&date_from=" + from;
+            if (company.ExchangeMic is not null) path += "&exchange=" + Uri.EscapeDataString(company.ExchangeMic);
+            var response = await RequestAsync(path, cancellation);
+            var data = Parse(response, company, clock.GetUtcNow());
             cache.Set(key, data, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24) });
             return data;
         }
@@ -77,11 +145,11 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
             throw new InvalidDataException("Marketstack supplied no daily prices for this stock.");
         var rows = values.EnumerateArray().ToArray();
         if (rows.Any(x => !x.TryGetProperty("symbol", out var symbol) || symbol.GetString() != company.ProviderSymbol ||
-            !x.TryGetProperty("exchange", out var exchange) || exchange.GetString() is not ("XNAS" or "XNYS")))
+            !x.TryGetProperty("exchange", out var exchange) || (company.ExchangeMic is not null ? exchange.GetString() != company.ExchangeMic : MarketDirectory.MarketFor(exchange.GetString() ?? "", null) != company.Symbol.Split('.')[0])))
             throw new InvalidDataException("Marketstack returned a different symbol or an unsupported exchange.");
         var adjusted = rows.All(x => new[] { "adj_open", "adj_high", "adj_low", "adj_close" }.All(field => Number(x, field) is > 0));
         var prefix = adjusted ? "adj_" : "";
-        var zone = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(DataValidation.ZoneId(company.Symbol));
         var bars = rows.Select(x =>
         {
             // Provider date is a trading-day label at UTC midnight, not an actual closing timestamp.
@@ -97,11 +165,18 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
             "End-of-day research only; no live price, verified bid/ask or actionable day-trading data.",
             "The free connector does not supply fundamentals; long-term analysis is unavailable.",
             "Price history is cached for 24 hours to conserve the 100-request monthly quota. Render restarts clear this cache.",
-            "The provider trading date is represented at US session start; this is not the closing or retrieval timestamp."
+            "The provider trading date uses a market-local date marker; this is not a verified closing or retrieval timestamp."
         };
         if (adjusted) warnings.Add("Provider-adjusted OHLC is used; corporate-action adjustments may include dividends. Volume is provider-reported.");
         else warnings.Add("Adjusted OHLC is incomplete. Raw prices are shown, but trend signals and backtests are withheld.");
-        var data = new MarketData(company.Symbol, company.Name, "USD", "Daily market data via Marketstack", now, bars, [],
+        var currencies = rows.Select(x => Text(x, "price_currency") ?? Text(x, "currency")).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToArray();
+        if (currencies.Length > 1) throw new InvalidDataException("The provider returned inconsistent price currencies.");
+        var currency = currencies.SingleOrDefault() ?? company.Currency;
+        if (currencies.Length == 0 && (company.Symbol.StartsWith("UK.") || company.Symbol.StartsWith("ZA.")))
+            throw new InvalidDataException("Price currency/unit is missing; this listing cannot yet be analysed safely.");
+        currency ??= DataValidation.Currency(company.Symbol);
+        if (currency is not ("GBp" or "ZAc")) currency = currency.ToUpperInvariant();
+        var data = new MarketData(company.Symbol, company.Name, currency, "Daily market data via Marketstack", now, bars, [],
             SplitAdjusted: adjusted, Warnings: warnings.ToArray());
         DataValidation.Validate(data, now);
         return data;
