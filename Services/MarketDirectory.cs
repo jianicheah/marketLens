@@ -7,6 +7,7 @@ public static class MarketDirectory
     public static readonly MarketChoice[] Choices =
     [
         new("XNAS", "US", "US · NASDAQ"), new("XNYS", "US", "US · NYSE"),
+        new("ARCX", "US", "US · NYSE Arca"),
         new("XNGS", "US", "US · NASDAQ Global Select"), new("XNMS", "US", "US · NASDAQ Global"),
         new("XNCM", "US", "US · NASDAQ Capital"), new("XASE", "US", "US · NYSE American"),
         new("IEXG", "US", "US · IEX"), new("PINX", "US", "US · OTC Pink"),

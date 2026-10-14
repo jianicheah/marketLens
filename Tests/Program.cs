@@ -288,6 +288,9 @@ Check("Shipped worldwide catalogue is visible immediately and opens an exact exc
     Assert(all.Length > 10000, "The deployment did not include the worldwide stock catalogue.");
     foreach (var symbol in new[] { "US.AAPL", "US.NVDA", "MY.1155", "MY.5099", "SG.D05", "HK.0700" })
         Assert(all.Any(x => x.Symbol == symbol), "Missing expected listing: " + symbol);
+    var voo = all.Single(x => x.Symbol == "US.VOO");
+    Assert(voo.ExchangeMic == "ARCX" && voo.InstrumentType == "ETF", "VOO is missing, incorrectly typed, or mapped to a secondary exchange.");
+    Assert(provider.AvailableCompanies(query: "S&P 500").Any(x => x.Symbol == "US.VOO"), "S&P 500 filtering did not find VOO.");
     var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
     var page = new MarketLens.Pages.IndexModel(store, provider, engine, backtest, new AiExplanationService(factory, config), clock);
     page.OnGetAsync(default).GetAwaiter().GetResult();

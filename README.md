@@ -1,5 +1,7 @@
 # Active provider: Twelve Data
 
+The catalogue now includes supported ETF listings from Twelve Data's public `/etf` directory as well as `/stocks`, including `US.VOO` (Vanguard S&P 500 ETF, NYSE Arca/ARCX). Records carry their provider instrument type, and primary US exchanges take precedence over secondary IEX/OTC listings of the same code. This fixes the previous stock-only import exclusion. VOO is an ETF tracking the index; the S&P 500 index itself is not added as a company. Listing availability still does not grant price access: a live Apple history/chart check passed, while the reported Taiwan listing returned a provider plan restriction. The combined bundled import contains 113,523 unique stock/ETF listing codes; subsequent automated counts may change.
+
 ## Automatic catalogue and intraday quote updates
 
 Verification: [the first successful automation run](https://github.com/jianicheah/marketLens/actions/runs/38496243559) passed all 58 .NET checks and the quote-widget checks, fetched the public directory and published the durable catalogue branch. A public AAPL demo request verified the `/quote` response format; this does not establish the website account's international quote entitlement.
