@@ -1,5 +1,15 @@
 # Marketstack connection and visitor access
 
+## Current saved stock list
+
+The homepage shows all saved catalogue countries together and searches the saved list locally. It does not ask visitors to choose a country or query the provider directory. Its total is the count of unique listing codes, separate from the project's 27 exchange mappings. The initial catalogue contains ten US stocks. Expand it with `Tools/Sync-CompanyCatalog.ps1`: set the provider key in the process environment as `MarketData__MarketstackApiKey`, run the script, and repeat to resume until `complete=True`. Each run is bounded to five directory requests by default; `-MaxRequests` changes that budget. Each provider page can contain up to 1000 raw rows. Only eligible mapped listings are saved, so the count may be lower. This uses API quota, and actual coverage depends on the provider.
+
+The script writes a deployable `Catalogue/company-catalogue.json` and a local progress checkpoint. Restart/publish the application with that catalogue to show it. Search and catalogue pagination consume no provider requests. Opening a stock still fetches and validates prices if needed. A partial import is a partial list; the UI reports the actual saved count. The live import has not been performed in this workspace because no provider key is configured. The directory selector described below is superseded by the saved-list flow.
+
+## Public directory browsing update
+
+The updated homepage exposes **Browse markets** to visitors without sign-in. Its exchange selector includes all 27 project-configured choices, including NASDAQ, NYSE, Bursa Malaysia, Singapore and Hong Kong. Search queries the configured provider directory, and pagination requests subsequent pages instead of stopping at the ten starter companies. Exchange choices do not guarantee successful provider results, price access or sufficient history for analysis. Returned listings become eligible for public price retrieval; arbitrary unlisted symbols remain blocked. Directory pages are cached for 24 hours; uncached searches/pages and price histories consume the shared provider quota. No full catalogue is downloaded or persisted. Browse offsets are bounded through 9984 per exchange/search, and server restarts clear directory caches. Restart locally or deploy this updated source to use the new flow. The earlier starter-only and owner-only directory descriptions below describe the prior version. Existing owner management routes remain separate from public browsing.
+
 The connector was checked against live provider responses on 12 October 2026: `/v1/tickers` returned Apple listing metadata, and `/v2/eod` returned daily prices. The former `/v2/tickers` request returned HTTP 404 and has been corrected. No API key is stored in this repository.
 
 ## Connection settings

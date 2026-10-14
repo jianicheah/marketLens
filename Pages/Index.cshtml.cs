@@ -27,24 +27,28 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public string[] Symbols { get; private set; } = [];
     public CompanySearchResult[] Companies { get; private set; } = [];
     [BindProperty(SupportsGet = true)] public string? Country { get; set; }
-    [BindProperty(SupportsGet = true), Range(0, 10000)] public int BrowseOffset { get; set; }
+    [BindProperty(SupportsGet = true), Range(0, int.MaxValue)] public int BrowseOffset { get; set; }
     public bool SourceConfigured => marketData.Configured;
     public AvailableCountry[] Countries => marketData.AvailableCountries;
     public int MatchingCount { get; private set; }
+    public int TotalCompanyCount => marketData.AvailableCompanies().Length;
+    public bool HasNext { get; private set; }
     public string ResultsTitle { get; private set; } = "Available companies";
     public string ListingStatus(string symbol) => marketData.ReadAvailable(symbol) is { } data
         ? $"Daily prices ready · {data.Daily.Length} bars"
-        : SourceConfigured ? "Daily prices · load on opening" : "Data connection not configured";
+        : SourceConfigured ? "Price availability checked on opening" : "Data connection not configured";
     private void LoadCompanies()
     {
         // Old country links also open the complete website list.
         Country = null;
-        if (BrowseOffset is < 0 or > 10000) BrowseOffset = 0;
+        if (BrowseOffset < 0) BrowseOffset = 0;
         if (Query?.Length > 80) { Error = "Search must be 80 characters or fewer."; Companies = []; MatchingCount = 0; return; }
         ResultsTitle = Country is null ? "Available companies" : AvailableCompanyCatalog.CountryName(Country) + " companies";
         var matches = marketData.AvailableCompanies(Country, Query);
         MatchingCount = matches.Length;
+        if (BrowseOffset >= MatchingCount) BrowseOffset = Math.Max(0, (MatchingCount - 1) / 24 * 24);
         Companies = matches.Skip(BrowseOffset).Take(24).ToArray();
+        HasNext = (long)BrowseOffset + 24 < MatchingCount;
     }
     [BindProperty(SupportsGet = true)] public bool AutoFetch { get; set; }
     public async Task OnGetAsync(CancellationToken cancellation)
@@ -89,8 +93,10 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         catch (Exception e) when (e is InvalidDataException or IOException or JsonException)
         { Error = "Stored data could not be analysed. Re-import a valid dataset or refresh the source."; Data = null; Result = null; }
     }
-    public IActionResult OnGetSearch() { BrowseOffset = 0; OnGet(); return Page(); }
-    public IActionResult OnGetBrowse() { OnGet(); return Page(); }
+    public async Task<IActionResult> OnGetSearchAsync(CancellationToken cancellation)
+    { BrowseOffset = 0; await OnGetAsync(cancellation); return Page(); }
+    public async Task<IActionResult> OnGetBrowseAsync(CancellationToken cancellation)
+    { await OnGetAsync(cancellation); return Page(); }
     public async Task<IActionResult> OnPostRefreshAsync(CancellationToken cancellation)
     {
         NormalizeHorizon();

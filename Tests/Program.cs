@@ -328,6 +328,62 @@ Check("Invalid directory filters send no requests", () =>
     provider.SearchAsync("", default, "XNAS", -1).GetAwaiter().GetResult();
     Assert(handler.Requests == 0, "Invalid browsing input consumed quota.");
 });
+Check("Public discovery expands the starter list and permits returned listings only", () =>
+{
+    var handler = new FakeDirectoryHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
+    var page = provider.DiscoverAsync(null, null, 0, default).GetAwaiter().GetResult();
+    Assert(page.Companies.Length == 3 && provider.AvailableCompanies().Length > 10, "Public browsing stayed limited to starter companies.");
+    Assert(!provider.HasPrices("MY.1155") && provider.AvailableCountries.Length == 0, "Discovery claimed verified prices.");
+    provider.DiscoverAsync(null, null, 0, default).GetAwaiter().GetResult();
+    Assert(handler.Requests == 1, "Repeated browsing spent additional quota.");
+    Reject(() => provider.FetchListedAsync("US.UNLISTED", default).GetAwaiter().GetResult());
+    Assert(handler.Requests == 1, "Arbitrary visitor symbol spent quota.");
+    Assert(provider.FetchListedAsync("US.BA", default).GetAwaiter().GetResult().Symbol == "US.BA", "A discovered company could not be opened.");
+});
+Check("Directory pagination uses raw rows even when filtering removes listings", () =>
+{
+    var handler = new FakeDirectoryHandler { DirectoryPayload = "{\"pagination\":{\"total\":48},\"data\":[{\"has_eod\":false}]}" };
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var provider = new MarketstackDataProvider(new PublicClients(handler), cache, clock, config);
+    var page = provider.SearchPageAsync("", default, "XSES", 0).GetAwaiter().GetResult();
+    Assert(page.Companies.Length == 0 && page.HasNext, "An empty filtered page hid subsequent provider pages.");
+    handler.DirectoryPayload = "{\"pagination\":{\"total\":25},\"data\":[{\"has_eod\":false}]}";
+    Assert(!provider.SearchPageAsync("", default, "XSES", 24).GetAwaiter().GetResult().HasNext, "Last provider page still offers Next.");
+});
+Check("Homepage lists the saved cross-country catalogue and search spends no quota", () =>
+{
+    var handler = new FakeDirectoryHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var snapshotPath = Path.Combine(Path.GetTempPath(), "MarketLens-catalogue-" + Guid.NewGuid() + ".json");
+    using var document = JsonDocument.Parse(FakeDirectoryHandler.Listings);
+    File.WriteAllText(snapshotPath, JsonSerializer.Serialize(MarketstackDataProvider.ParseListings(document.RootElement), DatasetStore.JsonOptions));
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
+        ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key",
+        ["MarketData:CompanyCatalogPath"] = snapshotPath,
+        ["Hosting:PublicMode"] = "true", ["RENDER_EXTERNAL_HOSTNAME"] = "marketlens.onrender.com" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
+    var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
+    var page = new MarketLens.Pages.IndexModel(store, provider, engine, backtest, new AiExplanationService(factory, config), clock);
+    page.OnGetAsync(default).GetAwaiter().GetResult();
+    Assert(page.TotalCompanyCount == 13 && page.Companies.Length == 13, "Full saved catalogue was not visible before searching.");
+    page.Query = "MY."; page.BrowseOffset = 24;
+    page.OnGetSearchAsync(default).GetAwaiter().GetResult();
+    Assert(page.BrowseOffset == 0 && page.Companies.Single().Symbol == "MY.1155" && page.MatchingCount == 1, "Local prefix search failed.");
+    Assert(page.TotalCompanyCount == 13 && handler.Requests == 0, "Search changed the total or spent provider quota.");
+    Assert(!provider.HasPrices("MY.1155"), "A saved directory listing claimed verified prices.");
+    Assert(WebsiteCompanyCatalog.Read(snapshotPath).Length == 3, "Saved catalogue did not survive reloading.");
+    File.WriteAllText(snapshotPath, JsonSerializer.Serialize(new[] { new CompanySearchResult("MY.AAPL", "AAPL", "Wrong exchange", "NASDAQ", ExchangeMic: "XNAS") }));
+    Reject(() => WebsiteCompanyCatalog.Read(snapshotPath));
+    File.Delete(snapshotPath);
+});
 Check("Country catalogue starts empty and excludes demos and imports", () =>
 {
     using var catalogue = new AvailableCompanyCatalog(clock);
@@ -568,6 +624,7 @@ sealed class CataloguePricesHandler : HttpMessageHandler
 
 sealed class FakeDirectoryHandler : HttpMessageHandler
 {
+    public string DirectoryPayload { get; set; } = Listings;
     public int Requests { get; private set; }
     public string LastQuery { get; private set; } = "";
     public const string Listings = """
@@ -583,7 +640,7 @@ sealed class FakeDirectoryHandler : HttpMessageHandler
     {
         Requests++; LastQuery = request.RequestUri!.Query;
         var path = request.RequestUri.AbsolutePath;
-        var body = path.EndsWith("/v1/tickers") ? Listings : FakeMarketstackHandler.Payload().Replace("AAPL", "BA").Replace("XNAS", "XNYS");
+        var body = path.EndsWith("/v1/tickers") ? DirectoryPayload : FakeMarketstackHandler.Payload().Replace("AAPL", "BA").Replace("XNAS", "XNYS");
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
     }
 }

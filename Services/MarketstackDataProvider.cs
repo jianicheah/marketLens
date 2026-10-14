@@ -4,6 +4,8 @@ using MarketLens.Models;
 using Microsoft.Extensions.Caching.Memory;
 namespace MarketLens.Services;
 
+public sealed record ListingPage(CompanySearchResult[] Companies, bool HasNext);
+
 public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryCache cache, TimeProvider clock, IConfiguration configuration)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
@@ -28,28 +30,38 @@ public sealed class MarketstackDataProvider(IHttpClientFactory clients, IMemoryC
     public bool Configured => !string.IsNullOrWhiteSpace(configuration["MarketData:MarketstackApiKey"]);
     public bool HasPrices(string symbol) => cache.TryGetValue<MarketData>("marketstack:" + symbol, out _);
     public async Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation, string? mic = null, int offset = 0)
+        => (await SearchPageAsync(query, cancellation, mic, offset)).Companies;
+
+    public async Task<ListingPage> SearchPageAsync(string query, CancellationToken cancellation, string? mic = null, int offset = 0)
     {
         query = query.Trim();
-        if (query.Length > 80 || offset < 0 || offset > 10000 || mic is not null && MarketDirectory.Find(mic) is null) return [];
+        if (query.Length > 80 || offset < 0 || offset > 10000 || mic is not null && MarketDirectory.Find(mic) is null) return new([], false);
         var key = $"marketstack-list:{mic}:{query.ToUpperInvariant()}:{offset}";
-        if (cache.TryGetValue<CompanySearchResult[]>(key, out var cached)) return cached!;
+        if (cache.TryGetValue<ListingPage>(key, out var cached)) return cached!;
         // Searching a familiar name can still work during initial setup; this is not the universe limit.
-        if (!Configured) return Popular.Where(x => (mic is null || x.ExchangeMic == mic) &&
-            (query.Length == 0 || x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query, StringComparison.OrdinalIgnoreCase))).ToArray();
+        if (!Configured) return new(Popular.Where(x => (mic is null || x.ExchangeMic == mic) &&
+            (query.Length == 0 || x.Name.Contains(query, StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query, StringComparison.OrdinalIgnoreCase))).Skip(offset).Take(24).ToArray(), false);
         await gate.WaitAsync(cancellation);
         try
         {
-            if (cache.TryGetValue<CompanySearchResult[]>(key, out cached)) return cached!;
+            if (cache.TryGetValue<ListingPage>(key, out cached)) return cached!;
             // The listing directory uses v1; v2/tickers returns 404. Price history remains v2/eod.
             var path = "v1/tickers?limit=24&offset=" + offset;
             if (query.Length > 0) path += "&search=" + Uri.EscapeDataString(query);
             if (mic is not null) path += "&exchange=" + Uri.EscapeDataString(mic);
             var document = await RequestAsync(path, cancellation);
             var results = ParseListings(document).Where(x => mic is null || x.ExchangeMic == mic).ToArray();
+            // Pagination follows raw provider rows, including rows excluded by our validation.
+            var count = document.GetProperty("data").GetArrayLength();
+            var hasNext = count == 24;
+            if (document.TryGetProperty("pagination", out var pagination) &&
+                pagination.TryGetProperty("total", out var total) && total.TryGetInt32(out var totalRows))
+                hasNext = offset + count < totalRows;
+            var page = new ListingPage(results, hasNext && offset < 9984);
             foreach (var listing in results)
                 cache.Set("marketstack-company:" + listing.Symbol, listing, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
-            cache.Set(key, results, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
-            return results;
+            cache.Set(key, page, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
+            return page;
         }
         finally { gate.Release(); }
     }

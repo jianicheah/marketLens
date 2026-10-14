@@ -3,6 +3,25 @@ namespace MarketLens.Services;
 
 public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, MarketstackDataProvider marketstack, TwelveDataProvider twelve, IConfiguration configuration, AvailableCompanyCatalog available)
 {
+    private readonly Lazy<CompanySearchResult[]> savedCatalogue = new(() => WebsiteCompanyCatalog.Read(
+        configuration["MarketData:CompanyCatalogPath"] ?? Path.Combine("Catalogue",
+            string.Equals(configuration["MarketData:Provider"] ?? "TwelveData", "TwelveData", StringComparison.OrdinalIgnoreCase)
+                ? "company-catalogue-twelvedata.json" : "company-catalogue.json")));
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CompanySearchResult> directory = new();
+    public async Task<ListingPage> DiscoverAsync(string? query, string? mic, int offset, CancellationToken cancellation)
+    {
+        var page = await marketstack.SearchPageAsync(query ?? "", cancellation, mic, offset);
+        foreach (var company in page.Companies)
+        {
+            if (directory.Count >= 10000 && !directory.ContainsKey(company.Symbol))
+            {
+                var oldest = directory.Keys.FirstOrDefault(x => !page.Companies.Any(c => c.Symbol == x));
+                if (oldest is not null) directory.TryRemove(oldest, out _);
+            }
+            directory[company.Symbol] = company;
+        }
+        return page;
+    }
     public bool UsesMarketstack => Provider == "Marketstack";
     public bool UsesTwelveData => Provider == "TwelveData";
     public bool UsesManagedProvider => UsesMarketstack || UsesTwelveData;
@@ -12,6 +31,8 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public CompanySearchResult[] Popular => AvailableCompanies().Take(10).ToArray();
     public CompanySearchResult[] AvailableCompanies(string? country = null, string? query = null) =>
         (UsesMarketstack ? MarketstackDataProvider.Popular : UsesTwelveData ? TwelveDataProvider.Popular : Array.Empty<CompanySearchResult>())
+        .Concat(UsesManagedProvider ? savedCatalogue.Value : [])
+        .Concat(UsesMarketstack ? directory.Values : Enumerable.Empty<CompanySearchResult>())
         .Concat(available.Companies(Name)).DistinctBy(x => x.Symbol)
         .Where(x => country is null || AvailableCompanyCatalog.CountryCode(x.Symbol) == country)
         .Where(x => string.IsNullOrWhiteSpace(query) || x.Name.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))

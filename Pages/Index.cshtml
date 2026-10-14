@@ -10,8 +10,9 @@
         <section class="panel explorer">
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
             <div class="market-browser">
-                <div class="browser-heading"><h2>Companies on this website</h2><span class="count">@Model.MatchingCount shown</span></div>
-                <p class="muted">Browse the list below or search by company name or ticker. Search filters this list only. Daily prices load when you open a company.</p>
+                <div class="browser-heading"><h2>Stock list</h2><span class="count">@Model.TotalCompanyCount total listings</span></div>
+                <p class="muted">All catalogue countries are listed together. Codes such as US.AAPL and MY.1155 identify the market and ticker. Search only filters this saved list. Price availability is checked when you open a listing. No login required.</p>
+                @if (!string.IsNullOrWhiteSpace(Model.Query)) { <p class="list-note">@Model.MatchingCount matching listings</p> }
                 @if (!Model.SourceConfigured)
                 {
                     <p class="connection-note">Daily prices are unavailable until the website owner connects the data provider. @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Set up connection →</a> }</p>
@@ -24,15 +25,15 @@
             </div>
             @foreach (var company in Model.Companies)
             {
-                <div class="market-result"><a class="stock-row search-result-button company-view" asp-page="/Index" asp-route-Symbol="@company.Symbol" asp-route-Country="@Model.Country" asp-route-Horizon="@Model.Horizon"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small><small class="availability">@Model.ListingStatus(company.Symbol)</small></span><span>View →</span></a><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
+                <div class="market-result"><a class="stock-row search-result-button company-view" asp-page="/Index" asp-route-Symbol="@company.Symbol" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@Model.BrowseOffset" asp-route-Horizon="@Model.Horizon"><span class="stock-name"><strong>@company.Name</strong><small>@company.Symbol · @company.Exchange</small><small class="availability">@Model.ListingStatus(company.Symbol)</small></span><span>View →</span></a><button type="button" class="outline favourite-toggle" data-symbol="@company.Symbol" data-name="@company.Name" aria-pressed="false" hidden>☆ Favourite</button></div>
             }
             @if (Model.Companies.Length == 0)
-            { <p class="empty">This company is not in our website company list. Clear the search to see all listed companies.</p> }
-            @if (Model.MatchingCount > 24)
+            { <p class="empty">No saved listings match this search. Clear the search to see the catalogue.</p> }
+            @if (Model.BrowseOffset > 0 || Model.HasNext)
             {
                 <nav class="browse-pages" aria-label="Company pages">
-                    @if (Model.BrowseOffset > 0) { <a class="text-link" asp-page-handler="Browse" asp-route-Country="@Model.Country" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Math.Max(0, Model.BrowseOffset - 24))">← Previous</a> }
-                    @if (Model.BrowseOffset + 24 < Model.MatchingCount) { <a class="text-link" asp-page-handler="Browse" asp-route-Country="@Model.Country" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next companies →</a> }
+                    @if (Model.BrowseOffset > 0) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Math.Max(0, Model.BrowseOffset - 24))">← Previous</a> }
+                    @if (Model.HasNext) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next companies →</a> }
                 </nav>
             }
             <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
