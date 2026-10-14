@@ -86,6 +86,9 @@ public sealed class RefreshingCompanyCatalog
                     ?? throw new InvalidDataException("No catalogue listings returned."));
                 if (companies.Length != manifest.Count || companies.Length < current.Companies.Length * 0.8)
                     throw new InvalidDataException("Catalogue is incomplete or unexpectedly smaller; keeping the last valid version.");
+                var counts = companies.GroupBy(x => x.Symbol.Split('.')[0]).ToDictionary(x => x.Key, x => x.Count());
+                if (current.Companies.GroupBy(x => x.Symbol.Split('.')[0]).Any(group => counts.GetValueOrDefault(group.Key) < group.Count() * 0.8))
+                    throw new InvalidDataException("A market unexpectedly lost most of its listings; keeping the last valid catalogue.");
             }
             var stored = new StoredCatalogue(manifest, companies, Hash(JsonSerializer.SerializeToUtf8Bytes(companies)));
             Directory.CreateDirectory(Path.GetDirectoryName(storageFile)!);

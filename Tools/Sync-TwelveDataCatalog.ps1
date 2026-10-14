@@ -37,6 +37,11 @@ $baselinePath = Join-Path $projectRoot 'Catalogue/company-catalogue-twelvedata.j
 if (Test-Path -LiteralPath $baselinePath) {
     $baseline = @(Get-Content -LiteralPath $baselinePath -Raw | ConvertFrom-Json)
     if ($companies.Count -lt $baseline.Count * 0.8) { throw 'Directory unexpectedly lost over 20% of listings. Existing catalogue retained.' }
+    $newCounts = @{}
+    foreach ($group in ($companies.Values | Group-Object { $_.symbol.Split('.')[0] })) { $newCounts[$group.Name] = $group.Count }
+    foreach ($group in ($baseline | Group-Object { $_.symbol.Split('.')[0] })) {
+        if ([int]$newCounts[$group.Name] -lt $group.Count * 0.8) { throw ('Market ' + $group.Name + ' unexpectedly lost over 20% of listings. Existing catalogue retained.') }
+    }
 }
 New-Item -ItemType Directory -Path $catalogueFolder -Force | Out-Null
 $cataloguePath = Join-Path $catalogueFolder 'company-catalogue-twelvedata.json'

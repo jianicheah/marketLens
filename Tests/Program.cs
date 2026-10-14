@@ -611,6 +611,9 @@ Check("Automatic catalogue refresh persists changes, removes old listings, and s
         handler.SetSnapshot(seed.Take(1).ToArray(), now.AddMinutes(2));
         live.RefreshAsync(default).GetAwaiter().GetResult();
         Assert(live.RefreshFailed && live.Current.Companies.Length == 4, "A truncated directory replaced the valid catalogue.");
+        handler.SetSnapshot(seed.Take(4).Select(x => x with { Symbol = x.Symbol.Replace("US.", "MY."), ExchangeMic = "XKLS", Currency = "MYR" }).ToArray(), now.AddMinutes(3));
+        live.RefreshAsync(default).GetAwaiter().GetResult();
+        Assert(live.RefreshFailed && live.Current.Companies.All(x => x.Symbol.StartsWith("US.")), "A partial directory silently removed an entire market.");
         using var catalogue = new AvailableCompanyCatalog(clock);
         using var cache = new MemoryCache(new MemoryCacheOptions());
         var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue, live);
