@@ -680,6 +680,27 @@ Check("Signal overview uses engine results and excludes fictional/imported datas
     Assert(signals.All(x => x.AsOf is not null), "Overview omitted analysis timestamps.");
 });
 
+Check("Radar summaries survive store recreation and expire without inventing signals", () =>
+{
+    var folder = Path.Combine(Path.GetTempPath(), "MarketLens-radar-" + Guid.NewGuid());
+    try
+    {
+        var radarClock = new MutableClock(now);
+        var env = new CheckEnvironment { ContentRootPath = folder };
+        var config = TestSettings().Build();
+        var first = new RadarStore(env, config, radarClock);
+        var signal = SignalOverview.Build([flat], engine, clock, false).Single();
+        first.Save(new(signal.Symbol, now, signal, null));
+        first.Save(new("MY.1155", now, null, "Plan restricted"));
+        var restored = new RadarStore(env, config, radarClock);
+        Assert(restored.Current().Length == 2 && restored.Current().Single(x => x.Symbol == signal.Symbol).Result == signal, "Saved radar results disappeared on restart.");
+        Assert(restored.Current().Single(x => x.Symbol == "MY.1155").Result is null, "Restricted prices generated a signal.");
+        radarClock.Now = now.AddHours(25);
+        Assert(restored.Current().Length == 0, "Expired radar signals were presented as current.");
+    }
+    finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+});
+
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);

@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace MarketLens.Pages;
 
 public class IndexModel(DatasetStore store, MarketDataProvider marketData, AnalysisService analysis,
-    BacktestService backtest, AiExplanationService ai, TimeProvider clock, TwelveDataQuoteService? quotes = null) : PageModel
+    BacktestService backtest, AiExplanationService ai, TimeProvider clock, TwelveDataQuoteService? quotes = null, RadarStore? radar = null) : PageModel
 {
     [BindProperty(SupportsGet = true)] public string? Symbol { get; set; }
     [BindProperty(SupportsGet = true)] public string Horizon { get; set; } = "swing";
@@ -23,11 +23,17 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public int SignalCount(string signal) => SignalStocks.Count(x => x.Signal == signal);
     public int UnavailableCount { get; private set; }
     public int UncheckedCount { get; private set; }
+    public IActionResult OnGetRadar()
+    {
+        Response.Headers.CacheControl = "no-store";
+        OnGet();
+        return Page();
+    }
     public async Task<IActionResult> OnGetScanAsync(CancellationToken cancellation)
     {
         // Advance through the directory within the shared provider budget.
         var failures = 0;
-        var checkedSymbols = marketData.CachedDatasets().Select(x => x.Symbol).Concat(marketData.UnavailableSymbols()).ToHashSet();
+        var checkedSymbols = marketData.CachedDatasets().Select(x => x.Symbol).Concat(marketData.UnavailableSymbols()).Concat((radar?.Current() ?? []).Select(x => x.Symbol)).ToHashSet();
         var batch = marketData.AvailableCompanies(query: Query).Where(x => !checkedSymbols.Contains(x.Symbol)).Take(3).ToArray();
         foreach (var symbol in batch.Select(x => x.Symbol))
         {
@@ -100,9 +106,10 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         LoadCompanies();
         SignalStocks = SignalOverview.Build(marketData.CachedDatasets(), analysis, clock, OwnsStock);
         var listed = marketData.AvailableCompanies().Select(x => x.Symbol).ToHashSet();
-        SignalStocks = SignalStocks.Where(x => listed.Contains(x.Symbol)).ToArray();
+        var saved = radar?.Current() ?? [];
+        SignalStocks = SignalStocks.Concat(saved.Where(x => x.Result is not null).Select(x => x.Result!)).Where(x => listed.Contains(x.Symbol)).DistinctBy(x => x.Symbol).OrderBy(x => x.Signal == "Buy" ? 0 : x.Signal == "Sell" ? 1 : x.Signal == "Hold" ? 2 : 3).ThenBy(x => x.Name).ToArray();
         var analysed = SignalStocks.Select(x => x.Symbol).ToHashSet();
-        UnavailableCount = marketData.UnavailableSymbols().Count(x => listed.Contains(x) && !analysed.Contains(x));
+        UnavailableCount = marketData.UnavailableSymbols().Concat(saved.Where(x => x.Result is null).Select(x => x.Symbol)).Distinct().Count(x => listed.Contains(x) && !analysed.Contains(x));
         UncheckedCount = Math.Max(0, listed.Count - SignalStocks.Length - UnavailableCount);
         if (CostBps is < 0 or > 100) { Error = "Costs must be 0–100 basis points per side."; CostBps = 10; }
         try

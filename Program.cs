@@ -75,6 +75,8 @@ builder.Services.AddHttpClient("LocalAi", client =>
     client.Timeout = TimeSpan.FromSeconds(45);
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<AnalysisService>();
+builder.Services.AddSingleton<RadarStore>();
+builder.Services.AddHostedService<RadarWorker>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;

@@ -7,10 +7,10 @@
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
     <section class="panel signal-overview" aria-labelledby="signal-title">
-        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">@Model.TotalCompanyCount listings accounted for · @Model.SignalStocks.Length current cached histories analysed · weeks / months signals.</p></div><a class="outline signal-scan" asp-page-handler="Scan" asp-route-OwnsStock="@Model.OwnsStock" asp-route-Query="@Model.Query">Check next 3 listings →</a></div>
-        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT HISTORY</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Loaded history cannot support a signal</small></div><div class="signal-missing"><span>UNAVAILABLE / RESTRICTED</span><strong>@Model.UnavailableCount</strong><small>Recent failed checks; retry after 5 minutes</small></div><div class="signal-hold"><span>NOT CHECKED</span><strong>@Model.UncheckedCount</strong><small>No current history or recent failed check</small></div></div>
+        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">@Model.TotalCompanyCount listings accounted for · @Model.SignalStocks.Length saved histories analysed · weeks / months signals.</p></div><a class="outline signal-scan" asp-page-handler="Scan" asp-route-OwnsStock="@Model.OwnsStock" asp-route-Query="@Model.Query">Check next 3 listings →</a></div>
+        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT HISTORY</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Loaded history cannot support a signal</small></div><div class="signal-missing"><span>UNAVAILABLE / RESTRICTED</span><strong>@Model.UnavailableCount</strong><small>Recent failed checks; automatic retry</small></div><div class="signal-hold"><span>NOT CHECKED</span><strong>@Model.UncheckedCount</strong><small>No current history or recent failed check</small></div></div>
         @if (Model.SignalStocks.Length == 0)
-        { <p class="signal-empty">Open a stock below or check the next batch. The batch follows the filtered list when a filter is active. Requests share the provider allowance.</p> }
+        { <p class="signal-empty">Automatic screening is starting. Results appear as provider requests finish; refresh this page shortly. You can also open a stock or check the next filtered batch. If nothing appears, check the provider key and plan access.</p> }
         else
         {
             <p class="signal-axis">Bar length = absolute distance from the 50-day average (full bar = 25% or more). Colour = analysis signal, not confidence or expected return.</p>
@@ -27,7 +27,7 @@
             }
             </div>
         }
-        <p class="signal-footnote">Every listing is counted above. Buy, Sell, Hold and Insufficient history require loaded daily prices. Unavailable / restricted means a recent request failed; Not checked means no current result. Counts reflect the current server cache (up to 128 histories), expire with it and reset after a restart. A full directory scan needs persistent background processing and sufficient provider coverage and quota.</p>
+        <p class="signal-footnote">Automatic screening starts with popular stocks and checks up to 100 listings per rolling 24 hours, paced to leave room for visitor requests. Results are saved separately from the price cache and expire after 24 hours. Every listing is counted; unprocessed listings remain Not checked. On hosting without a persistent disk, saved results are rebuilt automatically after a restart. Buy/Sell/Hold use completed daily bars, not live quotes. A category can legitimately contain zero stocks.</p>
     </section>
     <div class="dashboard">
         <section class="panel explorer">
@@ -139,4 +139,4 @@
         </div>
     </div>
 </div>
-@section Scripts { <script src="~/js/favourites.js" asp-append-version="true" defer></script><script src="~/js/intraday-quote.js" asp-append-version="true" defer></script> }
+@section Scripts { <script src="~/js/favourites.js" asp-append-version="true" defer></script><script src="~/js/intraday-quote.js" asp-append-version="true" defer></script><script src="~/js/radar.js" asp-append-version="true" defer></script> }
