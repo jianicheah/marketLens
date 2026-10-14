@@ -1,7 +1,7 @@
 using MarketLens.Models;
 namespace MarketLens.Services;
 
-public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, MarketstackDataProvider marketstack, TwelveDataProvider twelve, IConfiguration configuration, AvailableCompanyCatalog available)
+public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, MarketstackDataProvider marketstack, TwelveDataProvider twelve, IConfiguration configuration, AvailableCompanyCatalog available, RefreshingCompanyCatalog? refreshing = null)
 {
     private readonly Lazy<CompanySearchResult[]> savedCatalogue = new(() => WebsiteCompanyCatalog.Read(
         configuration["MarketData:CompanyCatalogPath"] ?? Path.Combine("Catalogue",
@@ -34,11 +34,13 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     };
     public bool Configured => UsesMarketstack ? marketstack.Configured : UsesTwelveData ? twelve.Configured : true;
     public CompanySearchResult[] Popular => AvailableCompanies().Take(10).ToArray();
+    public DateTimeOffset? CatalogueCheckedAt => UsesTwelveData ? refreshing?.Current.Manifest?.CheckedAt : null;
+    public bool CatalogueRefreshFailed => UsesTwelveData && refreshing?.RefreshFailed == true;
     public CompanySearchResult[] AvailableCompanies(string? country = null, string? query = null) =>
-        (UsesManagedProvider ? savedCatalogue.Value : [])
-        .Concat(UsesMarketstack ? MarketstackDataProvider.Popular : UsesTwelveData ? TwelveDataProvider.Popular : Array.Empty<CompanySearchResult>())
+        (UsesTwelveData && refreshing is not null ? refreshing.Current.Companies : UsesManagedProvider ? savedCatalogue.Value : [])
+        .Concat(UsesMarketstack ? MarketstackDataProvider.Popular : UsesTwelveData && refreshing?.Current.Manifest is null ? TwelveDataProvider.Popular : Array.Empty<CompanySearchResult>())
         .Concat(UsesMarketstack ? directory.Values : Enumerable.Empty<CompanySearchResult>())
-        .Concat(available.Companies(Name)).DistinctBy(x => x.Symbol)
+        .Concat(UsesTwelveData && refreshing?.Current.Manifest is not null ? [] : available.Companies(Name)).DistinctBy(x => x.Symbol)
         .Where(x => country is null || AvailableCompanyCatalog.CountryCode(x.Symbol) == country)
         .Where(x => string.IsNullOrWhiteSpace(query) || Matches(x, query.Trim()))
         .OrderBy(x => x.Name).ToArray();

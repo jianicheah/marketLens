@@ -12,6 +12,7 @@
             <div class="market-browser">
                 <div class="browser-heading"><h2>Stock list</h2><span class="count">@Model.TotalCompanyCount total listings</span></div>
                 <p class="muted">Browse stocks below. US, MY, SG and HK codes identify the market. Prices are checked when you open a stock.</p>
+                <p class="list-note">Catalogue checked: @IndexModel.DisplayTime(Model.CatalogueCheckedAt). @if (Model.CatalogueRefreshFailed) { <span>Refresh unavailable; showing the last valid list.</span> } else if (Model.CatalogueCheckedAt is null) { <span>Showing the bundled list while checking for updates.</span> }</p>
                 @if (!string.IsNullOrWhiteSpace(Model.Query)) { <p class="list-note">@Model.MatchingCount matching listings</p> }
                 @if (!Model.SourceConfigured)
                 {
@@ -39,6 +40,18 @@
             <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
         </section>
         <div class="detail-column">
+        @if (Model.ShowIntradayQuote)
+        {
+            <section class="panel setup-panel" data-intraday-quote data-quote-url="@Url.Page("/Index", "Quote", new { Symbol = Model.Symbol })">
+                <p class="eyebrow">INTRADAY PRICE SNAPSHOT</p><h2>@Model.Symbol</h2>
+                <p class="quote"><strong data-quote-price>—</strong></p>
+                <p class="list-note" data-quote-status role="status">Checking the latest available intraday price…</p>
+                <p class="list-note" data-quote-time></p>
+                <p class="list-note" data-quote-error role="status"></p>
+                <p class="muted">Checks every minute while this page is visible and the market is open; less often when closed or unavailable. Quotes may be delayed or restricted by your data plan. The chart and research signals below use daily prices.</p>
+                <noscript><p>Enable JavaScript to load and update intraday price snapshots.</p></noscript>
+            </section>
+        }
         @if (Model.Data is not { } data || Model.Result is not { } result)
         {
             <section class="panel setup-panel">
@@ -61,7 +74,7 @@
             <section class="panel company-detail"><div class="panel-heading"><div><p class="eyebrow">@data.Symbol / @IndexModel.DisplaySource(data.Source)</p><h2 class="company-title">@data.Name</h2></div><span class="count">@(data.IsSample ? "FICTIONAL DATA" : data.IsImported ? "IMPORTED DATA" : "PUBLIC MARKET DATA")</span></div>
                 @if (data.IsSample) { <aside class="notice inset"><strong>Fictional demonstration.</strong> These prices and results cannot inform a real investment.</aside> }
                 <div class="quote"><strong><span>@data.Currency</span> @(data.Price?.ToString("N2") ?? "—")</strong><span class="muted">@(data.Quote is null ? "Latest stored daily close" : "Snapshot price · " + data.Quote.MarketState)</span></div>
-                <p class="list-note">Quote time: @IndexModel.DisplayTime(data.Quote?.UpdatedAt) · Retrieved: @IndexModel.DisplayTime(data.RetrievedAt)</p>
+                <p class="list-note">@(data.Quote is null ? "Daily bar time" : "Quote time"): @IndexModel.DisplayTime(data.Quote?.UpdatedAt ?? data.Daily.LastOrDefault()?.Time) · Retrieved: @IndexModel.DisplayTime(data.RetrievedAt)</p>
                 @if (data.Daily.Length > 1)
                 {
                     var chart = data.Daily.TakeLast(120).ToArray(); var min = chart.Min(b => b.Close); var range = Math.Max(chart.Max(b => b.Close) - min, 0.01m);
@@ -103,4 +116,4 @@
         </div>
     </div>
 </div>
-@section Scripts { <script src="~/js/favourites.js" asp-append-version="true" defer></script> }
+@section Scripts { <script src="~/js/favourites.js" asp-append-version="true" defer></script><script src="~/js/intraday-quote.js" asp-append-version="true" defer></script> }

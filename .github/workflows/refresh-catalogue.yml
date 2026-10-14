@@ -1,0 +1,65 @@
+name: Refresh stock catalogue
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refresh-catalogue.yml'
+      - 'Services/**'
+      - 'Pages/**'
+      - 'Models/**'
+      - 'Tools/Sync-TwelveDataCatalog.ps1'
+      - 'Tests/**'
+      - '*.csproj'
+      - 'Program.cs'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-catalogue-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        if: github.event_name == 'push'
+        with:
+          dotnet-version: '9.0.x'
+      - name: Verify catalogue and quote regression checks
+        if: github.event_name == 'push'
+        run: dotnet run --project Tests/MarketLens.Checks.csproj -p:UseAppHost=false
+      - name: Verify intraday quote widget
+        if: github.event_name == 'push'
+        run: node Tests/quote-widget-checks.cjs
+      - name: Fetch and validate the public stock directory
+        shell: pwsh
+        run: ./Tools/Sync-TwelveDataCatalog.ps1 -DestinationPath (Join-Path $env:RUNNER_TEMP 'catalogue-update')
+      - name: Save the catalogue to durable storage without redeploying main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git show-ref --verify --quiet refs/remotes/origin/catalogue-data; then
+            git switch -C catalogue-data origin/catalogue-data
+          else
+            git switch -c catalogue-data
+          fi
+          mkdir -p Catalogue
+          cp "$RUNNER_TEMP/catalogue-update/company-catalogue-twelvedata.json" Catalogue/
+          cp "$RUNNER_TEMP/catalogue-update/manifest.json" Catalogue/
+          git add Catalogue/company-catalogue-twelvedata.json Catalogue/manifest.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Refresh stock directory metadata'
+          git push origin HEAD:catalogue-data

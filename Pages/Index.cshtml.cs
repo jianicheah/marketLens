@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace MarketLens.Pages;
 
 public class IndexModel(DatasetStore store, MarketDataProvider marketData, AnalysisService analysis,
-    BacktestService backtest, AiExplanationService ai, TimeProvider clock) : PageModel
+    BacktestService backtest, AiExplanationService ai, TimeProvider clock, TwelveDataQuoteService? quotes = null) : PageModel
 {
     [BindProperty(SupportsGet = true)] public string? Symbol { get; set; }
     [BindProperty(SupportsGet = true)] public string Horizon { get; set; } = "swing";
@@ -32,6 +32,17 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public AvailableCountry[] Countries => marketData.AvailableCountries;
     public int MatchingCount { get; private set; }
     public int TotalCompanyCount => marketData.AvailableCompanies().Length;
+    public DateTimeOffset? CatalogueCheckedAt => marketData.CatalogueCheckedAt;
+    public bool CatalogueRefreshFailed => marketData.CatalogueRefreshFailed;
+    public bool ShowIntradayQuote => !Demo && marketData.UsesTwelveData && Symbol is not null && marketData.AvailableCompanies().Any(x => x.Symbol == Symbol);
+    public async Task<IActionResult> OnGetQuoteAsync(CancellationToken cancellation)
+    {
+        Response.Headers.CacheControl = "no-store";
+        var listing = Symbol is null ? null : marketData.AvailableCompanies().FirstOrDefault(x => x.Symbol == Symbol.Trim().ToUpperInvariant());
+        if (!marketData.UsesTwelveData || listing is null) return NotFound();
+        if (!marketData.Configured || quotes is null) return new JsonResult(new StockQuoteResult(null, "The website's intraday data connection is not configured.", 300));
+        return new JsonResult(await quotes.GetAsync(listing, cancellation));
+    }
     public bool HasNext { get; private set; }
     public string ResultsTitle { get; private set; } = "Available companies";
     public string ListingStatus(string symbol) => marketData.ReadAvailable(symbol) is { } data

@@ -9,6 +9,11 @@ namespace MarketLens.Services;
 public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache cache, TimeProvider clock, IConfiguration configuration)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
+    private DateTimeOffset minuteStart;
+    private DateOnly creditDay;
+    private int minuteRequests;
+    private int dailyRequests;
+    private DateTimeOffset retryAfter;
     private static readonly CompanySearchResult[] Catalogue =
     [
         new("US.AAPL", "AAPL", "Apple Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.MSFT", "MSFT", "Microsoft Corporation", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.NVDA", "NVDA", "NVIDIA Corporation", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.AMZN", "AMZN", "Amazon.com Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.GOOGL", "GOOGL", "Alphabet Inc. Class A", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.META", "META", "Meta Platforms Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.TSLA", "TSLA", "Tesla Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.JPM", "JPM", "JPMorgan Chase & Co.", "NYSE", ExchangeMic: "XNYS", Currency: "USD"), new("US.V", "V", "Visa Inc.", "NYSE", ExchangeMic: "XNYS", Currency: "USD"), new("US.WMT", "WMT", "Walmart Inc.", "NYSE", ExchangeMic: "XNYS", Currency: "USD")
@@ -16,6 +21,30 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
 
     public static CompanySearchResult[] Popular => Catalogue;
     public bool Configured => !string.IsNullOrWhiteSpace(configuration["MarketData:TwelveDataApiKey"]);
+
+    public async Task<StockQuoteSnapshot> FetchQuoteAsync(CompanySearchResult listing, CancellationToken cancellation)
+    {
+        if (!DataValidation.ValidSymbol(listing.Symbol) || string.IsNullOrWhiteSpace(listing.ExchangeMic))
+            throw new InvalidDataException("Choose a listed company with a known exchange.");
+        var path = "quote?interval=1min&symbol=" + Uri.EscapeDataString(listing.ProviderSymbol) + "&mic_code=" + Uri.EscapeDataString(listing.ExchangeMic);
+        return ParseQuote(await RequestAsync(path, cancellation), listing, clock.GetUtcNow());
+    }
+
+    public static StockQuoteSnapshot ParseQuote(JsonElement root, CompanySearchResult listing, DateTimeOffset now)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !string.Equals(Text(root, "symbol"), listing.ProviderSymbol, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Text(root, "mic_code"), listing.ExchangeMic, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The intraday quote belongs to a different stock or exchange.");
+        var currency = Text(root, "currency");
+        if (string.IsNullOrWhiteSpace(currency) || listing.Currency is { Length: > 0 } knownCurrency && !string.Equals(currency, knownCurrency, StringComparison.Ordinal))
+            throw new InvalidDataException("The intraday quote currency does not match this listing.");
+        if (!decimal.TryParse(Text(root, "close"), NumberStyles.Number, CultureInfo.InvariantCulture, out var price) || price <= 0 ||
+            !root.TryGetProperty("timestamp", out var time) || time.ValueKind != JsonValueKind.Number || !time.TryGetInt64(out var timestamp) || timestamp <= 0 || timestamp > now.AddMinutes(2).ToUnixTimeSeconds())
+            throw new InvalidDataException("The intraday quote has no valid price or provider timestamp.");
+        var asOf = DateTimeOffset.FromUnixTimeSeconds(timestamp);
+        bool? open = root.TryGetProperty("is_market_open", out var marketOpen) && marketOpen.ValueKind is JsonValueKind.True or JsonValueKind.False ? marketOpen.GetBoolean() : null;
+        return new(listing.Symbol, price, currency, asOf, now, open);
+    }
 
     public async Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation)
     {
@@ -59,16 +88,29 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
         await gate.WaitAsync(cancellation);
         try
         {
+            var now = clock.GetUtcNow();
+            if (now < retryAfter) throw new InvalidDataException("Twelve Data requests are temporarily paused after a rate limit. Please try again later.");
+            if (now - minuteStart >= TimeSpan.FromMinutes(1)) { minuteStart = now; minuteRequests = 0; }
+            var today = DateOnly.FromDateTime(now.UtcDateTime);
+            if (today != creditDay) { creditDay = today; dailyRequests = 0; }
+            var minuteLimit = Math.Clamp(configuration.GetValue("MarketData:TwelveDataCreditsPerMinute", 8), 1, 100000);
+            var dailyLimit = Math.Clamp(configuration.GetValue("MarketData:TwelveDataCreditsPerDay", 800), 1, int.MaxValue);
+            if (minuteRequests >= minuteLimit || dailyRequests >= dailyLimit)
+                throw new InvalidDataException("The website's shared Twelve Data request budget is exhausted. Cached data may remain available; please try again later.");
+            minuteRequests++; dailyRequests++;
             using var response = await clients.CreateClient("TwelveData").GetAsync(path + (path.Contains('?') ? "&" : "?") + "apikey=" + Uri.EscapeDataString(key), cancellation);
+            if ((int)response.StatusCode == 429) { retryAfter = clock.GetUtcNow().AddMinutes(1); throw new InvalidDataException("Twelve Data rate or daily-credit limit was reached. Please try again later."); }
             var body = await response.Content.ReadAsStringAsync(cancellation);
             using var document = JsonDocument.Parse(body);
             var providerError = document.RootElement.TryGetProperty("status", out var status) && status.GetString()?.Equals("error", StringComparison.OrdinalIgnoreCase) == true;
-            if ((int)response.StatusCode == 429) throw new InvalidDataException("Twelve Data rate or daily-credit limit was reached. Try again later.");
             if (providerError)
             {
                 var message = Text(document.RootElement, "message") ?? "request rejected.";
                 if (message.Contains("upgrad", StringComparison.OrdinalIgnoreCase) || message.Contains("plan", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Your Twelve Data plan does not include this company or exchange. It was not added to the website list.");
+                    throw new InvalidDataException("Your Twelve Data plan does not include the requested data for this company or exchange.");
+                if (message.Contains("limit", StringComparison.OrdinalIgnoreCase) || message.Contains("credit", StringComparison.OrdinalIgnoreCase))
+                    retryAfter = clock.GetUtcNow().AddMinutes(1);
+                message = message.Replace(key, "[redacted]", StringComparison.Ordinal);
                 throw new InvalidDataException("Twelve Data: " + message);
             }
             if (!response.IsSuccessStatusCode) throw new InvalidDataException((int)response.StatusCode is 401 or 403 ? "Twelve Data rejected the API key or this plan's access." : "Twelve Data is unavailable. Try again later.");
@@ -93,7 +135,7 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
             var localClose = DateTime.SpecifyKind(date.Date.AddHours(16), DateTimeKind.Unspecified);
             return new PriceBar(new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localClose, zone)), Number("open"), Number("high"), Number("low"), Number("close"), Number("volume"));
         }).OrderBy(x => x.Time).ToArray();
-        var data = new MarketData(company.Symbol, Text(meta, "name") ?? company.Name, currency, "Daily market data via Twelve Data", now, bars, [], SplitAdjusted: true, Warnings: ["End-of-day research only; no live price, verified bid/ask or actionable day-trading data.", "Daily values are requested with Twelve Data split adjustment. Price history is cached for 24 hours."]);
+        var data = new MarketData(company.Symbol, Text(meta, "name") ?? company.Name, currency, "Daily market data via Twelve Data", now, bars, [], SplitAdjusted: true, Warnings: ["End-of-day research only. Intraday snapshots are displayed separately; no verified bid/ask or actionable day-trading data is supplied to this analysis.", "Daily values are requested with Twelve Data split adjustment. Price history is cached for 24 hours."]);
         DataValidation.Validate(data, now); return data;
     }
 

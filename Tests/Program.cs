@@ -575,6 +575,95 @@ Check("Failed requests preserve their reason during the retry pause", () =>
     Assert(first.Contains("rejected the API key") && second.Contains(first) && second.Contains("Retry available") && handler.Requests == 1, "Retry lost the reason or consumed quota.");
 });
 
+Check("Automatic catalogue refresh persists changes, removes old listings, and survives failures", () =>
+{
+    var folder = Path.Combine(Path.GetTempPath(), "MarketLens-refresh-" + Guid.NewGuid());
+    Directory.CreateDirectory(folder);
+    try
+    {
+        var seed = Enumerable.Range(1, 5).Select(i => new CompanySearchResult("US.TEST" + i, "TEST" + i, "Test " + i, "NASDAQ", ExchangeMic: "XNAS", Currency: "USD")).ToArray();
+        var seedPath = Path.Combine(folder, "seed.json");
+        File.WriteAllText(seedPath, JsonSerializer.Serialize(seed));
+        var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> {
+            ["MarketData:Provider"] = "TwelveData", ["MarketData:CompanyCatalogPath"] = seedPath,
+            ["Catalogue:StoragePath"] = Path.Combine(folder, "store"), ["Catalogue:RemoteBaseUrl"] = "https://catalogue.example.invalid/Catalogue" }).Build();
+        var handler = new FakeCatalogueRefreshHandler(seed.Take(4).ToArray(), now);
+        var factory = new PublicClients(handler);
+        var env = new CheckEnvironment { ContentRootPath = folder };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<RefreshingCompanyCatalog>.Instance;
+        var live = new RefreshingCompanyCatalog(factory, config, env, clock, logger);
+        Assert(live.Current.Companies.Length == 5, "Seed catalogue unavailable before background refresh.");
+        live.RefreshAsync(default).GetAwaiter().GetResult();
+        Assert(live.Current.Companies.Length == 4 && !live.RefreshFailed && !live.Current.Companies.Any(x => x.Symbol == "US.TEST5"), "Refresh failed to remove an absent listing.");
+        var restarted = new RefreshingCompanyCatalog(factory, config, env, clock, logger);
+        Assert(restarted.Current.Companies.Length == 4 && restarted.Current.Manifest == live.Current.Manifest, "Restart lost the persisted refreshed catalogue.");
+        var downloads = handler.Downloads;
+        handler.Manifest = handler.Manifest with { CheckedAt = now.AddSeconds(30) };
+        live.RefreshAsync(default).GetAwaiter().GetResult();
+        Assert(handler.Downloads == downloads && live.Current.Manifest!.CheckedAt == now.AddSeconds(30), "Unchanged catalogue was downloaded again.");
+        handler.Status = HttpStatusCode.ServiceUnavailable;
+        live.RefreshAsync(default).GetAwaiter().GetResult();
+        Assert(live.RefreshFailed && live.Current.Companies.Length == 4, "Network failure destroyed the last valid list.");
+        handler.Status = HttpStatusCode.OK;
+        handler.Manifest = handler.Manifest with { Sha256 = new string('0', 64), CheckedAt = now.AddMinutes(1) };
+        live.RefreshAsync(default).GetAwaiter().GetResult();
+        Assert(live.RefreshFailed && live.Current.Companies.Length == 4, "Bad checksum replaced the catalogue.");
+        handler.SetSnapshot(seed.Take(1).ToArray(), now.AddMinutes(2));
+        live.RefreshAsync(default).GetAwaiter().GetResult();
+        Assert(live.RefreshFailed && live.Current.Companies.Length == 4, "A truncated directory replaced the valid catalogue.");
+        using var catalogue = new AvailableCompanyCatalog(clock);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue, live);
+        Assert(provider.AvailableCompanies().Length == 4, "Starter or previously checked entries resurrected removed listings.");
+    }
+    finally
+    {
+        if (!Path.GetFullPath(folder).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase)) throw new Exception("Unexpected temporary test path.");
+        Directory.Delete(folder, true);
+    }
+});
+Check("Intraday quotes cache shared requests and preserve an explicitly stale snapshot on failure", () =>
+{
+    var quoteClock = new MutableClock(now);
+    var handler = new FakeIntradayHandler(now);
+    var factory = new PublicClients(handler);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:TwelveDataApiKey"] = "fixture-test-key" }).Build();
+    var provider = new TwelveDataProvider(factory, cache, quoteClock, config);
+    var quotes = new TwelveDataQuoteService(provider, quoteClock);
+    var listing = new CompanySearchResult("MY.1155", "1155", "Maybank", "MYX", ExchangeMic: "XKLS", Currency: "MYR");
+    var first = quotes.GetAsync(listing, default).GetAwaiter().GetResult();
+    var second = quotes.GetAsync(listing, default).GetAwaiter().GetResult();
+    Assert(first.Quote?.Price == 10 && second.Quote == first.Quote && handler.Requests == 1, "Shared quote cache spent duplicate credits.");
+    Assert(handler.LastQuery.Contains("interval=1min") && handler.LastQuery.Contains("mic_code=XKLS"), "Intraday quote did not request the exact exchange and minute interval.");
+    quoteClock.Now = now.AddSeconds(61); handler.Status = HttpStatusCode.TooManyRequests;
+    var failed = quotes.GetAsync(listing, default).GetAwaiter().GetResult();
+    Assert(failed.Quote == first.Quote && failed.Error is not null && failed.RefreshAfterSeconds == 300, "Failed refresh lost the snapshot or hid its failure.");
+    quotes.GetAsync(listing, default).GetAwaiter().GetResult();
+    Assert(handler.Requests == 2, "Failed quote retries bypassed backoff.");
+    using var wrongCurrency = JsonDocument.Parse(handler.Payload.Replace("MYR", "USD"));
+    Reject(() => TwelveDataProvider.ParseQuote(wrongCurrency.RootElement, listing, now));
+    using var wrongExchange = JsonDocument.Parse(handler.Payload.Replace("XKLS", "XNAS"));
+    Reject(() => TwelveDataProvider.ParseQuote(wrongExchange.RootElement, listing, now));
+    using var noTimestamp = JsonDocument.Parse(handler.Payload.Replace("timestamp", "missing_time"));
+    Reject(() => TwelveDataProvider.ParseQuote(noTimestamp.RootElement, listing, now));
+});
+Check("Twelve Data request budget rejects extra calls before consuming provider credits", () =>
+{
+    var quoteClock = new MutableClock(now);
+    var handler = new FakeIntradayHandler(now);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> {
+        ["MarketData:TwelveDataApiKey"] = "fixture-test-key", ["MarketData:TwelveDataCreditsPerMinute"] = "1", ["MarketData:TwelveDataCreditsPerDay"] = "1" }).Build();
+    var provider = new TwelveDataProvider(new PublicClients(handler), cache, quoteClock, config);
+    var listing = new CompanySearchResult("MY.1155", "1155", "Maybank", "MYX", ExchangeMic: "XKLS", Currency: "MYR");
+    provider.FetchQuoteAsync(listing, default).GetAwaiter().GetResult();
+    Reject(() => provider.FetchQuoteAsync(listing, default).GetAwaiter().GetResult());
+    quoteClock.Now = now.AddMinutes(2);
+    Reject(() => provider.FetchQuoteAsync(listing, default).GetAwaiter().GetResult());
+    Assert(handler.Requests == 1, "Minute/daily website budgets failed to block extra provider calls.");
+});
+
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);
@@ -591,6 +680,33 @@ if (args.Contains("--live"))
 }
 Console.WriteLine($"All {passed} checks passed.");
 sealed class FixedClock(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }
+sealed class MutableClock(DateTimeOffset now) : TimeProvider { public DateTimeOffset Now { get; set; } = now; public override DateTimeOffset GetUtcNow() => Now; }
+sealed class FakeCatalogueRefreshHandler : HttpMessageHandler
+{
+    public byte[] Snapshot { get; private set; } = [];
+    public CatalogueManifest Manifest { get; set; } = null!;
+    public int Downloads { get; private set; }
+    public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+    public FakeCatalogueRefreshHandler(CompanySearchResult[] companies, DateTimeOffset now) => SetSnapshot(companies, now);
+    public void SetSnapshot(CompanySearchResult[] companies, DateTimeOffset now)
+    { Snapshot = JsonSerializer.SerializeToUtf8Bytes(companies); Manifest = new(RefreshingCompanyCatalog.Hash(Snapshot), companies.Length, now); }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.RequestUri!.AbsolutePath.EndsWith("manifest.json"))
+            return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(JsonSerializer.Serialize(Manifest)) });
+        Downloads++;
+        return Task.FromResult(new HttpResponseMessage(Status) { Content = new ByteArrayContent(Snapshot) });
+    }
+}
+sealed class FakeIntradayHandler(DateTimeOffset now) : HttpMessageHandler
+{
+    public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+    public int Requests { get; private set; }
+    public string LastQuery { get; private set; } = "";
+    public string Payload => JsonSerializer.Serialize(new { symbol = "1155", mic_code = "XKLS", currency = "MYR", close = "10", timestamp = now.AddMinutes(-1).ToUnixTimeSeconds(), is_market_open = true });
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    { Requests++; LastQuery = request.RequestUri!.Query; return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(Payload) }); }
+}
 sealed class PublicClients(HttpMessageHandler handler) : IHttpClientFactory
 {
     public HttpClient CreateClient(string name) => new(handler, disposeHandler: false) { BaseAddress = new Uri("https://query1.finance.yahoo.com/") };
