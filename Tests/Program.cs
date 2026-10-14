@@ -13,6 +13,7 @@ var clock = new FixedClock(now);
 var engine = new AnalysisService(clock);
 var backtest = new BacktestService();
 var passed = 0;
+IConfigurationBuilder TestSettings() => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:CompanyCatalogPath"] = Path.Combine(Path.GetTempPath(), "MarketLens-empty-test-catalogue.json") });
 void Check(string name, Action test)
 {
     test(); passed++; Console.WriteLine($"PASS {name}");
@@ -229,7 +230,7 @@ Check("Popular suggestions work without a key and missing owner key sends no req
 {
     var handler = new FakeMarketstackHandler();
     var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
-        new ConfigurationBuilder().Build());
+        TestSettings().Build());
     Assert(provider.SearchAsync("Apple", default).GetAwaiter().GetResult().Single().Symbol == "US.AAPL", "Catalogue search failed.");
     Reject(() => provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult());
     Reject(() => provider.FetchAsync("MY.1155", default).GetAwaiter().GetResult());
@@ -257,6 +258,49 @@ Check("Twelve Data daily prices map to split-adjusted chronological bars", () =>
     Assert(data.Symbol == "US.AAPL" && data.Currency == "USD" && data.SplitAdjusted && data.Daily.Length == 100, "Twelve Data daily history did not map correctly.");
     Assert(DataValidation.LocalTime(data.Symbol, data.Daily[^1].Time).Date == now.AddDays(-2).Date, "Twelve Data daily date shifted markets.");
     Assert(data.Warnings!.Any(x => x.Contains("split adjustment", StringComparison.OrdinalIgnoreCase)), "Twelve Data split-adjustment provenance is missing.");
+    Reject(() => TwelveDataProvider.Parse(document.RootElement, new("MY.AAPL", "DIFFERENT", "Wrong stock", "MYX", ExchangeMic: "XKLS"), now));
+});
+Check("Provider settings accept case and whitespace without losing the starter list", () =>
+{
+    var factory = new PublicClients(new FakeMarketstackHandler());
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    foreach (var name in new[] { "twelvedata", "TwelveData", " TwelveData ", "MARKETSTACK" })
+    {
+        var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = name }).Build();
+        var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
+        Assert(provider.AvailableCompanies().Length == 10 && provider.DailyOnly, "Provider spelling silently selected an empty legacy catalogue.");
+    }
+});
+Check("Shipped worldwide catalogue is visible immediately and opens an exact exchange without search", () =>
+{
+    var snapshotPath = Path.Combine(AppContext.BaseDirectory, "Catalogue", "company-catalogue-twelvedata.json");
+    var handler = new FakeTwelveCatalogueHandler();
+    var factory = new PublicClients(handler);
+    using var catalogue = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> {
+        ["MarketData:Provider"] = " twelvedata ", ["MarketData:TwelveDataApiKey"] = "fixture-test-key",
+        ["MarketData:CompanyCatalogPath"] = snapshotPath,
+        ["Hosting:PublicMode"] = "true", ["RENDER_EXTERNAL_HOSTNAME"] = "marketlens.onrender.com" }).Build();
+    var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
+    var all = provider.AvailableCompanies();
+    Assert(all.Length > 10000, "The deployment did not include the worldwide stock catalogue.");
+    foreach (var symbol in new[] { "US.AAPL", "US.NVDA", "MY.1155", "MY.5099", "SG.D05", "HK.0700" })
+        Assert(all.Any(x => x.Symbol == symbol), "Missing expected listing: " + symbol);
+    var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
+    var page = new MarketLens.Pages.IndexModel(store, provider, engine, backtest, new AiExplanationService(factory, config), clock);
+    page.OnGetAsync(default).GetAwaiter().GetResult();
+    Assert(page.Companies.Length == 24 && page.TotalCompanyCount == all.Length && page.HasNext && handler.Requests == 0, "Homepage required a search or API call before showing its stocks.");
+    page.Query = "Maybank";
+    page.OnGetSearchAsync(default).GetAwaiter().GetResult();
+    Assert(page.Companies.Single().Symbol == "MY.1155", "The Maybank alias did not match its legal name.");
+    Assert(provider.AvailableCompanies(query: "AirAsia").Any(x => x.Symbol == "MY.5099"), "The AirAsia alias did not find Capital A.");
+    page.Query = "MY.1155";
+    page.OnGetSearchAsync(default).GetAwaiter().GetResult();
+    Assert(page.Companies.Single().Symbol == "MY.1155" && handler.Requests == 0, "Saved-list filtering spent quota or lost the listing.");
+    var data = provider.FetchListedAsync("MY.1155", default).GetAwaiter().GetResult();
+    Assert(data.Symbol == "MY.1155" && handler.Requests == 1 && handler.LastQuery.Contains("mic_code=XKLS"), "Opening a catalogue stock searched or requested the wrong exchange.");
 });
 Check("Marketstack refuses mismatched symbols and abstains on unadjusted history", () =>
 {
@@ -270,7 +314,7 @@ Check("Marketstack caches prices and avoids additional metadata requests", () =>
 {
     var handler = new FakeMarketstackHandler();
     var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
-        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+        TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
     var first = provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult();
     provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult();
     Assert(handler.Requests == 1 && first.Daily.Length == 120, "Cached history used additional quota.");
@@ -279,7 +323,7 @@ Check("Marketstack quota responses pause requests without revealing a key", () =
 {
     var handler = new FakeMarketstackHandler { Status = HttpStatusCode.TooManyRequests };
     var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
-        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+        TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
     Reject(() => provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult());
     Reject(() => provider.FetchAsync("US.AAPL", default).GetAwaiter().GetResult());
     Assert(handler.Requests == 1, "Provider retried immediately after a quota response.");
@@ -303,7 +347,7 @@ Check("Directory browsing and searches cache results and fetch a non-starter sto
 {
     var handler = new FakeDirectoryHandler();
     var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
-        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+        TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
     var listings = provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
     provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
     var data = provider.FetchAsync("US.BA", default).GetAwaiter().GetResult();
@@ -323,7 +367,7 @@ Check("Invalid directory filters send no requests", () =>
 {
     var handler = new FakeDirectoryHandler();
     var provider = new MarketstackDataProvider(new PublicClients(handler), new MemoryCache(new MemoryCacheOptions()), clock,
-        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
+        TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build());
     Assert(provider.SearchAsync("", default, "invalid", 0).GetAwaiter().GetResult().Length == 0, "Invalid filter accepted.");
     provider.SearchAsync("", default, "XNAS", -1).GetAwaiter().GetResult();
     Assert(handler.Requests == 0, "Invalid browsing input consumed quota.");
@@ -334,7 +378,7 @@ Check("Public discovery expands the starter list and permits returned listings o
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     var page = provider.DiscoverAsync(null, null, 0, default).GetAwaiter().GetResult();
     Assert(page.Companies.Length == 3 && provider.AvailableCompanies().Length > 10, "Public browsing stayed limited to starter companies.");
@@ -349,7 +393,7 @@ Check("Directory pagination uses raw rows even when filtering removes listings",
 {
     var handler = new FakeDirectoryHandler { DirectoryPayload = "{\"pagination\":{\"total\":48},\"data\":[{\"has_eod\":false}]}" };
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
     var provider = new MarketstackDataProvider(new PublicClients(handler), cache, clock, config);
     var page = provider.SearchPageAsync("", default, "XSES", 0).GetAwaiter().GetResult();
     Assert(page.Companies.Length == 0 && page.HasNext, "An empty filtered page hid subsequent provider pages.");
@@ -365,7 +409,7 @@ Check("Homepage lists the saved cross-country catalogue and search spends no quo
     var snapshotPath = Path.Combine(Path.GetTempPath(), "MarketLens-catalogue-" + Guid.NewGuid() + ".json");
     using var document = JsonDocument.Parse(FakeDirectoryHandler.Listings);
     File.WriteAllText(snapshotPath, JsonSerializer.Serialize(MarketstackDataProvider.ParseListings(document.RootElement), DatasetStore.JsonOptions));
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> {
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> {
         ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key",
         ["MarketData:CompanyCatalogPath"] = snapshotPath,
         ["Hosting:PublicMode"] = "true", ["RENDER_EXTERNAL_HOSTNAME"] = "marketlens.onrender.com" }).Build();
@@ -408,7 +452,7 @@ Check("Directory results cannot enable a country before daily retrieval succeeds
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     provider.SearchAsync("Boeing", default).GetAwaiter().GetResult();
     Assert(provider.AvailableCountries.Length == 0, "Directory metadata was mistaken for price availability.");
@@ -425,7 +469,7 @@ Check("Missing connection and failed price access leave countries unavailable", 
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     Reject(() => provider.FetchAsync("US.AAPL", false, default).GetAwaiter().GetResult());
     Assert(provider.AvailableCountries.Length == 0 && handler.Requests == 0, "Missing key enabled markets or sent requests.");
@@ -439,7 +483,7 @@ Check("Website list includes Apple before fetching and search only filters that 
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     Assert(provider.AvailableCompanies().Length == MarketstackDataProvider.Popular.Length, "Initial website list is empty.");
     Assert(provider.AvailableCompanies(query: " apple ").Single().Symbol == "US.AAPL", "Apple cannot be found before fetching.");
@@ -453,7 +497,7 @@ Check("Visitors can load listed Apple prices once but cannot fetch arbitrary sym
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     Reject(() => provider.FetchListedAsync("US.UNLISTED", default).GetAwaiter().GetResult());
     Assert(handler.Requests == 0, "An unlisted company consumed API quota.");
@@ -505,7 +549,7 @@ Check("Every listed company uses the shared fetch/cache path including exchange 
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     foreach (var company in provider.AvailableCompanies())
     {
@@ -524,7 +568,7 @@ Check("Failed requests preserve their reason during the retry pause", () =>
     var factory = new PublicClients(handler);
     using var catalogue = new AvailableCompanyCatalog(clock);
     using var cache = new MemoryCache(new MemoryCacheOptions());
-    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> { ["MarketData:Provider"] = "Marketstack", ["MarketData:MarketstackApiKey"] = "fixture-test-key" }).Build();
     var provider = new MarketDataProvider(new PublicMarketDataProvider(factory, cache, clock), new MarketstackDataProvider(factory, cache, clock, config), new TwelveDataProvider(factory, cache, clock, config), config, catalogue);
     string Message() { try { provider.FetchListedAsync("US.AAPL", default).GetAwaiter().GetResult(); return ""; } catch (InvalidDataException e) { return e.Message; } }
     var first = Message(); var second = Message();
@@ -620,6 +664,24 @@ sealed class CataloguePricesHandler : HttpMessageHandler
         return Reply(FakeMarketstackHandler.Payload().Replace("AAPL", ticker).Replace("XNAS", mic));
     }
     private static Task<HttpResponseMessage> Reply(string body) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+}
+
+sealed class FakeTwelveCatalogueHandler : HttpMessageHandler
+{
+    public int Requests { get; private set; }
+    public string LastQuery { get; private set; } = "";
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests++;
+        if (!request.RequestUri!.AbsolutePath.EndsWith("/time_series")) throw new Exception("Opening a saved stock unexpectedly searched the provider.");
+        LastQuery = request.RequestUri.Query;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""
+            {"meta":{"symbol":"1155","name":"Malayan Banking Berhad","currency":"MYR","mic_code":"XKLS"},"values":[
+              {"datetime":"2026-10-07","open":"10","high":"11","low":"9","close":"10","volume":"1000"},
+              {"datetime":"2026-10-06","open":"10","high":"11","low":"9","close":"10","volume":"1000"}
+            ],"status":"ok"}
+            """) });
+    }
 }
 
 sealed class FakeDirectoryHandler : HttpMessageHandler

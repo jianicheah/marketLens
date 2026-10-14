@@ -5,8 +5,8 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
 {
     private readonly Lazy<CompanySearchResult[]> savedCatalogue = new(() => WebsiteCompanyCatalog.Read(
         configuration["MarketData:CompanyCatalogPath"] ?? Path.Combine("Catalogue",
-            string.Equals(configuration["MarketData:Provider"] ?? "TwelveData", "TwelveData", StringComparison.OrdinalIgnoreCase)
-                ? "company-catalogue-twelvedata.json" : "company-catalogue.json")));
+            string.Equals(configuration["MarketData:Provider"]?.Trim(), "Marketstack", StringComparison.OrdinalIgnoreCase)
+                ? "company-catalogue.json" : "company-catalogue-twelvedata.json")));
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CompanySearchResult> directory = new();
     public async Task<ListingPage> DiscoverAsync(string? query, string? mic, int offset, CancellationToken cancellation)
     {
@@ -26,17 +26,33 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public bool UsesTwelveData => Provider == "TwelveData";
     public bool UsesManagedProvider => UsesMarketstack || UsesTwelveData;
     public bool DailyOnly => UsesManagedProvider;
-    private string Provider => configuration["MarketData:Provider"] ?? "TwelveData";
+    private string Provider => (configuration["MarketData:Provider"] ?? "TwelveData").Trim().ToUpperInvariant() switch
+    {
+        "MARKETSTACK" => "Marketstack",
+        "YAHOO" or "YAHOOFINANCE" => "Yahoo",
+        _ => "TwelveData"
+    };
     public bool Configured => UsesMarketstack ? marketstack.Configured : UsesTwelveData ? twelve.Configured : true;
     public CompanySearchResult[] Popular => AvailableCompanies().Take(10).ToArray();
     public CompanySearchResult[] AvailableCompanies(string? country = null, string? query = null) =>
-        (UsesMarketstack ? MarketstackDataProvider.Popular : UsesTwelveData ? TwelveDataProvider.Popular : Array.Empty<CompanySearchResult>())
-        .Concat(UsesManagedProvider ? savedCatalogue.Value : [])
+        (UsesManagedProvider ? savedCatalogue.Value : [])
+        .Concat(UsesMarketstack ? MarketstackDataProvider.Popular : UsesTwelveData ? TwelveDataProvider.Popular : Array.Empty<CompanySearchResult>())
         .Concat(UsesMarketstack ? directory.Values : Enumerable.Empty<CompanySearchResult>())
         .Concat(available.Companies(Name)).DistinctBy(x => x.Symbol)
         .Where(x => country is null || AvailableCompanyCatalog.CountryCode(x.Symbol) == country)
-        .Where(x => string.IsNullOrWhiteSpace(query) || x.Name.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase) || x.Symbol.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Where(x => string.IsNullOrWhiteSpace(query) || Matches(x, query.Trim()))
         .OrderBy(x => x.Name).ToArray();
+    private static bool Matches(CompanySearchResult company, string query)
+    {
+        var aliases = company.Symbol switch
+        {
+            "MY.1155" => "Maybank", "MY.5099" => "AirAsia Capital A",
+            "US.GOOGL" or "US.GOOG" => "Google", _ => ""
+        };
+        return company.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            company.Symbol.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            aliases.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
     public AvailableCountry[] AvailableCountries => Configured ? available.Countries(Name) : [];
     public MarketData? ReadAvailable(string symbol) => Configured ? available.Read(Name, symbol) : null;
     public bool HasPrices(string symbol) => Configured && available.Read(Name, symbol) is not null;
@@ -66,7 +82,8 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     {
         if (!Configured) throw new InvalidDataException("The data connection is not configured. Open Data sources to connect the provider.");
         var cached = available.Read(Name, symbol); if (UsesManagedProvider && cached is not null) return cached;
-        var data = UsesMarketstack ? await marketstack.FetchAsync(symbol, cancellation) : UsesTwelveData ? await twelve.FetchAsync(symbol, cancellation) : await yahoo.FetchAsync(symbol, includeIntraday, cancellation);
+        var listing = UsesTwelveData ? AvailableCompanies().FirstOrDefault(x => x.Symbol == symbol) : null;
+        var data = UsesMarketstack ? await marketstack.FetchAsync(symbol, cancellation) : UsesTwelveData ? await twelve.FetchAsync(symbol, cancellation, listing) : await yahoo.FetchAsync(symbol, includeIntraday, cancellation);
         available.Record(Name, data); return data;
     }
 }

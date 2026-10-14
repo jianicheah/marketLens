@@ -1,5 +1,9 @@
 # Twelve Data trial setup
 
+## Populated stock catalogue
+
+`Catalogue/company-catalogue-twelvedata.json` ships with 74,839 unique stock listing codes imported from Twelve Data's public `/stocks` directory on 14 October 2026. No company search, account login or API key is needed to display/filter this saved list. The importer keeps supported exchange mappings and stock types; it does not claim all worldwide records or verified price entitlement. Refresh with `Tools/Sync-TwelveDataCatalog.ps1` and commit/deploy the updated snapshot. Search aliases include Maybank (`MY.1155`), AirAsia/Capital A (`MY.5099`) and Google (`US.GOOGL`). Opening a saved listing requests daily history directly for its exact ticker and MIC, with symbol/exchange response checks. Price-history access remains subject to the account plan. The Render blueprint now defaults to Twelve Data; check existing Render Environment values for overrides.
+
 The application selects this connector only when `MarketData:Provider` is `TwelveData`. It reads `MarketData:TwelveDataApiKey` from .NET User Secrets locally and `MarketData__TwelveDataApiKey` in Render. Neither key belongs in `appsettings.json` or Git.
 
 ## Local setup

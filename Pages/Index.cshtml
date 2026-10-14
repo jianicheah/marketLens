@@ -11,15 +11,15 @@
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
             <div class="market-browser">
                 <div class="browser-heading"><h2>Stock list</h2><span class="count">@Model.TotalCompanyCount total listings</span></div>
-                <p class="muted">All catalogue countries are listed together. Codes such as US.AAPL and MY.1155 identify the market and ticker. Search only filters this saved list. Price availability is checked when you open a listing. No login required.</p>
+                <p class="muted">Browse stocks below. US, MY, SG and HK codes identify the market. Prices are checked when you open a stock.</p>
                 @if (!string.IsNullOrWhiteSpace(Model.Query)) { <p class="list-note">@Model.MatchingCount matching listings</p> }
                 @if (!Model.SourceConfigured)
                 {
                     <p class="connection-note">Daily prices are unavailable until the website owner connects the data provider. @if (Model.CanManage) { <a class="text-link" asp-page="/Data">Set up connection →</a> }</p>
                 }
                 <form method="get" asp-page-handler="Search" class="search-form">
-                    <label class="sr-only" for="query">Search this company list</label><input id="query" name="Query" value="@Model.Query" placeholder="Company name or ticker, e.g. Apple" maxlength="80" />
-                    <button type="submit">Search</button>
+                    <label class="sr-only" for="query">Filter the stock list (optional)</label><input id="query" name="Query" value="@Model.Query" placeholder="Filter this list (optional)" maxlength="80" />
+                    <button type="submit">Filter</button>
                     @if (!string.IsNullOrWhiteSpace(Model.Query)) { <a class="text-link clear-search" asp-page="/Index">Clear</a> }
                 </form>
             </div>

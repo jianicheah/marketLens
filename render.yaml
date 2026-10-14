@@ -15,8 +15,8 @@ services:
         value: "10000"
 
       - key: MarketData__Provider
-        value: Marketstack
-      - key: MarketData__MarketstackApiKey
+        value: TwelveData
+      - key: MarketData__TwelveDataApiKey
         sync: false
       - key: Hosting__OwnerPassword
         sync: false

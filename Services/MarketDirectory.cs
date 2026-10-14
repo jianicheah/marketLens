@@ -7,8 +7,14 @@ public static class MarketDirectory
     public static readonly MarketChoice[] Choices =
     [
         new("XNAS", "US", "US · NASDAQ"), new("XNYS", "US", "US · NYSE"),
+        new("XNGS", "US", "US · NASDAQ Global Select"), new("XNMS", "US", "US · NASDAQ Global"),
+        new("XNCM", "US", "US · NASDAQ Capital"), new("XASE", "US", "US · NYSE American"),
+        new("IEXG", "US", "US · IEX"), new("PINX", "US", "US · OTC Pink"),
+        new("PSGM", "US", "US · OTC Global"), new("OTCB", "US", "US · OTC Bulletin Board"),
+        new("OTCQ", "US", "US · OTCQ"), new("EXPM", "US", "US · Expert Market"),
         new("XKLS", "MY", "Malaysia · Bursa"), new("XHKG", "HK", "Hong Kong"), new("XSES", "SG", "Singapore"),
         new("XTKS", "JP", "Japan · Tokyo"), new("XLON", "UK", "United Kingdom"), new("XASX", "AU", "Australia"),
+        new("XJPX", "JP", "Japan · JPX"), new("XSAP", "JP", "Japan · Sapporo"),
         new("XTSE", "CA", "Canada · Toronto"), new("XSHG", "SH", "China · Shanghai"), new("XSHE", "SZ", "China · Shenzhen"),
         new("XETR", "DE", "Germany · Xetra"), new("XPAR", "FR", "France"), new("XAMS", "NL", "Netherlands"),
         new("XMIL", "IT", "Italy"), new("XSWX", "CH", "Switzerland"), new("XMAD", "ES", "Spain"),

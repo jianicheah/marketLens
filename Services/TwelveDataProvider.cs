@@ -30,13 +30,16 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
         cache.Set(cacheKey, results, CacheEntry()); return results;
     }
 
-    public async Task<MarketData> FetchAsync(string symbol, CancellationToken cancellation)
+    public async Task<MarketData> FetchAsync(string symbol, CancellationToken cancellation, CompanySearchResult? listing = null)
     {
         if (!DataValidation.ValidSymbol(symbol)) throw new InvalidDataException("Choose a company from the website list or provider search.");
         var cacheKey = "twelve-data:" + symbol;
         if (cache.TryGetValue<MarketData>(cacheKey, out var cached)) return cached!;
-        var company = await ResolveAsync(symbol, cancellation);
-        var response = await RequestAsync("time_series?interval=1day&outputsize=365&adjust=splits&symbol=" + Uri.EscapeDataString(company.ProviderSymbol), cancellation);
+        if (listing is not null && listing.Symbol != symbol) throw new InvalidDataException("The catalogue listing does not match the requested stock.");
+        var company = listing ?? await ResolveAsync(symbol, cancellation);
+        var path = "time_series?interval=1day&outputsize=365&adjust=splits&symbol=" + Uri.EscapeDataString(company.ProviderSymbol);
+        if (!string.IsNullOrWhiteSpace(company.ExchangeMic)) path += "&mic_code=" + Uri.EscapeDataString(company.ExchangeMic);
+        var response = await RequestAsync(path, cancellation);
         var result = Parse(response, company, clock.GetUtcNow());
         cache.Set(cacheKey, result, new MemoryCacheEntryOptions { Size = 1, AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(24) }); return result;
     }
@@ -78,6 +81,9 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
     public static MarketData Parse(JsonElement root, CompanySearchResult company, DateTimeOffset now)
     {
         if (!root.TryGetProperty("meta", out var meta) || !root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array || values.GetArrayLength() == 0) throw new InvalidDataException("Twelve Data supplied no daily prices for this company.");
+        if (!string.Equals(Text(meta, "symbol"), company.ProviderSymbol, StringComparison.OrdinalIgnoreCase) ||
+            Text(meta, "mic_code") is { } responseMic && company.ExchangeMic is { } listingMic && responseMic != listingMic)
+            throw new InvalidDataException("Twelve Data returned prices for a different stock or exchange.");
         var currency = Text(meta, "currency") ?? company.Currency ?? DataValidation.Currency(company.Symbol); if (currency is not ("GBp" or "ZAc")) currency = currency.ToUpperInvariant();
         var zone = TimeZoneInfo.FindSystemTimeZoneById(DataValidation.ZoneId(company.Symbol));
         var bars = values.EnumerateArray().Select(row =>
