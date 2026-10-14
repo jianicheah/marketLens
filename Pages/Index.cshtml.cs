@@ -41,7 +41,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public bool SourceConfigured => marketData.Configured;
     public AvailableCountry[] Countries => marketData.AvailableCountries;
     public int MatchingCount { get; private set; }
-    public int TotalCompanyCount => marketData.AvailableCompanies().Length;
+    public int TotalCompanyCount { get; private set; }
     public DateTimeOffset? CatalogueCheckedAt => marketData.CatalogueCheckedAt;
     public bool CatalogueRefreshFailed => marketData.CatalogueRefreshFailed;
     public bool ShowIntradayQuote => !Demo && marketData.UsesTwelveData && Symbol is not null && marketData.AvailableCompanies().Any(x => x.Symbol == Symbol);
@@ -90,6 +90,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         LoadCompanies();
         SignalStocks = SignalOverview.Build(marketData.CachedDatasets(), analysis, clock, OwnsStock);
         var listed = marketData.AvailableCompanies().Select(x => x.Symbol).ToHashSet();
+        TotalCompanyCount = listed.Count;
         var saved = radar?.Current() ?? [];
         SignalStocks = SignalStocks.Concat(saved.Where(x => x.Result is not null).Select(x => x.Result!)).Where(x => listed.Contains(x.Symbol)).DistinctBy(x => x.Symbol).OrderBy(x => x.Signal == "Buy" ? 0 : x.Signal == "Sell" ? 1 : x.Signal == "Hold" ? 2 : 3).ThenBy(x => x.Name).ToArray();
         var analysed = SignalStocks.Select(x => x.Symbol).ToHashSet();

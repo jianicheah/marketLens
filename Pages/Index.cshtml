@@ -23,7 +23,7 @@
                     @if (stock.Prices is { Length: >= 2 } prices)
                     {
                         var change = (prices[^1].Close / prices[0].Close - 1) * 100;
-                        <span class="signal-price-chart"><svg viewBox="0 0 240 64" preserveAspectRatio="none" role="img" aria-label="@stock.Name: daily closing prices from @prices[0].Time.ToString("dd MMM yyyy") to @prices[^1].Time.ToString("dd MMM yyyy")"><polyline points="@MarketLens.Services.SignalOverview.ChartPoints(prices)" /></svg><small>@prices[0].Time.ToString("dd MMM") — @prices[^1].Time.ToString("dd MMM")</small></span>
+                        <span class="signal-price-chart"><svg viewBox="0 0 240 64" preserveAspectRatio="none" role="img" aria-label="@stock.Name: daily closing prices from @prices[0].Time.ToOffset(TimeSpan.FromHours(8)).ToString("dd MMM yyyy") to @prices[^1].Time.ToOffset(TimeSpan.FromHours(8)).ToString("dd MMM yyyy")"><polyline points="@MarketLens.Services.SignalOverview.ChartPoints(prices)" /></svg><small>@prices[0].Time.ToOffset(TimeSpan.FromHours(8)).ToString("dd MMM") — @prices[^1].Time.ToOffset(TimeSpan.FromHours(8)).ToString("dd MMM")</small></span>
                         <span class="signal-value">@change.ToString("+0.0;-0.0;0.0")%<small>@stock.Currency @prices[^1].Close.ToString("N2") close</small></span>
                     }
                     else
