@@ -7,10 +7,10 @@
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
     <section class="panel signal-overview" aria-labelledby="signal-title">
-        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">Weeks / months · @Model.SignalStocks.Length cached histories checked · click a stock for its evidence below.</p></div><a class="outline signal-scan" asp-page-handler="Scan" asp-route-OwnsStock="@Model.OwnsStock">Analyse Apple, NVIDIA &amp; VOO →</a></div>
-        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Signal withheld</small></div></div>
+        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">@Model.TotalCompanyCount listings accounted for · @Model.SignalStocks.Length current cached histories analysed · weeks / months signals.</p></div><a class="outline signal-scan" asp-page-handler="Scan" asp-route-OwnsStock="@Model.OwnsStock" asp-route-Query="@Model.Query">Check next 3 listings →</a></div>
+        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT HISTORY</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Loaded history cannot support a signal</small></div><div class="signal-missing"><span>UNAVAILABLE / RESTRICTED</span><strong>@Model.UnavailableCount</strong><small>Recent failed checks; retry after 5 minutes</small></div><div class="signal-hold"><span>NOT CHECKED</span><strong>@Model.UncheckedCount</strong><small>No current history or recent failed check</small></div></div>
         @if (Model.SignalStocks.Length == 0)
-        { <p class="signal-empty">Open a stock below, or analyse the three-stock starter watchlist to populate this chart. No worldwide price scan is performed.</p> }
+        { <p class="signal-empty">Open a stock below or check the next batch. The batch follows the filtered list when a filter is active. Requests share the provider allowance.</p> }
         else
         {
             <p class="signal-axis">Bar length = absolute distance from the 50-day average (full bar = 25% or more). Colour = analysis signal, not confidence or expected return.</p>
@@ -27,7 +27,7 @@
             }
             </div>
         }
-        <p class="signal-footnote">Coverage includes only successfully loaded, cached price histories—not all listed stocks or entire country markets. Uses daily bars and the same rules as the detail panel. No forecast or guaranteed return.</p>
+        <p class="signal-footnote">Every listing is counted above. Buy, Sell, Hold and Insufficient history require loaded daily prices. Unavailable / restricted means a recent request failed; Not checked means no current result. Counts reflect the current server cache (up to 128 histories), expire with it and reset after a restart. A full directory scan needs persistent background processing and sufficient provider coverage and quota.</p>
     </section>
     <div class="dashboard">
         <section class="panel explorer">

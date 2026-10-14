@@ -64,7 +64,8 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public string Name => UsesMarketstack ? "Marketstack" : UsesTwelveData ? "Twelve Data" : "Yahoo Finance";
     public Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync(query, cancellation) : UsesTwelveData ? twelve.SearchAsync(query, cancellation) : yahoo.SearchAsync(query, cancellation);
     private readonly SemaphoreSlim visitorGate = new(1, 1);
-    private readonly Dictionary<string, (DateTimeOffset Until, string Reason)> failedUntil = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset Until, string Reason)> failedUntil = new();
+    public string[] UnavailableSymbols() => failedUntil.Where(x => x.Value.Until > DateTimeOffset.UtcNow).Select(x => x.Key).ToArray();
     public async Task<MarketData> FetchListedAsync(string symbol, CancellationToken cancellation)
     {
         if (!AvailableCompanies().Any(x => x.Symbol == symbol)) throw new InvalidDataException("This company is not in the website's company list.");
@@ -73,7 +74,7 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
         try
         {
             var cached = ReadAvailable(symbol); if (cached is not null) return cached;
-            foreach (var expired in failedUntil.Where(x => x.Value.Until <= DateTimeOffset.UtcNow).Select(x => x.Key).ToArray()) failedUntil.Remove(expired);
+            foreach (var expired in failedUntil.Where(x => x.Value.Until <= DateTimeOffset.UtcNow).Select(x => x.Key).ToArray()) failedUntil.TryRemove(expired, out _);
             if (failedUntil.TryGetValue(symbol, out var failure) && failure.Until > DateTimeOffset.UtcNow) throw new InvalidDataException(failure.Reason + " Retry available at " + failure.Until.ToOffset(TimeSpan.FromHours(8)).ToString("HH:mm:ss 'SGT'") + ".");
             try { return await FetchAsync(symbol, false, cancellation); }
             catch (Exception e) when (e is InvalidDataException or HttpRequestException or System.Text.Json.JsonException or TaskCanceledException)

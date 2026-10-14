@@ -21,18 +21,22 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public Recommendation? Result { get; private set; }
     public StockSignal[] SignalStocks { get; private set; } = [];
     public int SignalCount(string signal) => SignalStocks.Count(x => x.Signal == signal);
+    public int UnavailableCount { get; private set; }
+    public int UncheckedCount { get; private set; }
     public async Task<IActionResult> OnGetScanAsync(CancellationToken cancellation)
     {
-        // A bounded watchlist, never a scan of the worldwide catalogue.
+        // Advance through the directory within the shared provider budget.
         var failures = 0;
-        foreach (var symbol in new[] { "US.AAPL", "US.NVDA", "US.VOO" })
+        var checkedSymbols = marketData.CachedDatasets().Select(x => x.Symbol).Concat(marketData.UnavailableSymbols()).ToHashSet();
+        var batch = marketData.AvailableCompanies(query: Query).Where(x => !checkedSymbols.Contains(x.Symbol)).Take(3).ToArray();
+        foreach (var symbol in batch.Select(x => x.Symbol))
         {
             try { await marketData.FetchListedAsync(symbol, cancellation); }
             catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
             { if (cancellation.IsCancellationRequested) throw; failures++; }
         }
         OnGet();
-        if (failures > 0) Error = $"{failures} watchlist price requests were unavailable. Only successfully loaded histories appear in the overview.";
+        if (failures > 0) Error = $"{failures} batch price requests were unavailable or restricted. They are counted separately from insufficient history. Failed checks can be retried after five minutes.";
         return Page();
     }
     public BacktestResult? Backtest { get; private set; }
@@ -95,6 +99,11 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         NormalizeHorizon();
         LoadCompanies();
         SignalStocks = SignalOverview.Build(marketData.CachedDatasets(), analysis, clock, OwnsStock);
+        var listed = marketData.AvailableCompanies().Select(x => x.Symbol).ToHashSet();
+        SignalStocks = SignalStocks.Where(x => listed.Contains(x.Symbol)).ToArray();
+        var analysed = SignalStocks.Select(x => x.Symbol).ToHashSet();
+        UnavailableCount = marketData.UnavailableSymbols().Count(x => listed.Contains(x) && !analysed.Contains(x));
+        UncheckedCount = Math.Max(0, listed.Count - SignalStocks.Length - UnavailableCount);
         if (CostBps is < 0 or > 100) { Error = "Costs must be 0–100 basis points per side."; CostBps = 10; }
         try
         {
