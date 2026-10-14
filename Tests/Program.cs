@@ -670,6 +670,16 @@ Check("Twelve Data request budget rejects extra calls before consuming provider 
     Assert(handler.Requests == 1, "Minute/daily website budgets failed to block extra provider calls.");
 });
 
+Check("Signal overview uses engine results and excludes fictional/imported datasets", () =>
+{
+    var rising = Dataset(Bars(120, i => 100m + i * 0.15m + (i % 2 == 0 ? 0.8m : -0.8m))) with { Symbol = "US.RISING", Name = "Rising" };
+    var falling = Dataset(Bars(100, i => 200 - i)) with { Symbol = "US.FALLING", Name = "Falling" };
+    var signals = SignalOverview.Build([flat, rising, falling, flat with { Symbol = "US.DEMO", IsSample = true }, flat with { Symbol = "US.IMPORT", IsImported = true }], engine, clock, false);
+    Assert(signals.Length == 3 && signals.Count(x => x.Signal == "Buy") == 1 && signals.Count(x => x.Signal == "Sell") == 1 && signals.Count(x => x.Signal == "Hold") == 1, "Overview signals do not match the existing analysis engine.");
+    Assert(signals.Single(x => x.Symbol == "US.RISING").TrendPercent > 0 && signals.Single(x => x.Symbol == "US.FALLING").TrendPercent < 0, "Chart trend direction is incorrect.");
+    Assert(signals.All(x => x.AsOf is not null), "Overview omitted analysis timestamps.");
+});
+
 if (args.Contains("--live"))
 {
     var live = new PublicMarketDataProvider(new LivePublicClients(), new MemoryCache(new MemoryCacheOptions()), TimeProvider.System);

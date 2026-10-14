@@ -6,6 +6,29 @@
     <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div>@if (Model.CanManage) { <a class="outline" asp-page="/Data">Manage data ↗</a> }</div>
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
+    <section class="panel signal-overview" aria-labelledby="signal-title">
+        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">Weeks / months · @Model.SignalStocks.Length cached histories checked · click a stock for its evidence below.</p></div><a class="outline signal-scan" asp-page-handler="Scan" asp-route-OwnsStock="@Model.OwnsStock">Analyse Apple, NVIDIA &amp; VOO →</a></div>
+        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Signal withheld</small></div></div>
+        @if (Model.SignalStocks.Length == 0)
+        { <p class="signal-empty">Open a stock below, or analyse the three-stock starter watchlist to populate this chart. No worldwide price scan is performed.</p> }
+        else
+        {
+            <p class="signal-axis">Bar length = absolute distance from the 50-day average (full bar = 25% or more). Colour = analysis signal, not confidence or expected return.</p>
+            <div class="signal-chart" role="list" aria-label="Cached stock research signals">
+            @foreach (var stock in Model.SignalStocks)
+            {
+                var tone = stock.Signal == "Buy" ? "signal-buy" : stock.Signal == "Sell" ? "signal-sell" : stock.Signal == "Hold" ? "signal-hold" : "signal-missing";
+                <a role="listitem" class="signal-row @tone" asp-page="/Index" asp-route-Symbol="@stock.Symbol" asp-route-Horizon="swing" asp-route-OwnsStock="@Model.OwnsStock" asp-fragment="stock-analysis" aria-label="@stock.Name: @stock.Signal. @stock.Summary">
+                    <span class="signal-name"><strong>@stock.Name</strong><small>@stock.Symbol</small></span>
+                    <svg class="signal-bar" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect class="signal-track" width="100" height="12" rx="3" />@if (stock.TrendPercent is { } trend) { <rect class="signal-fill" width="@Math.Clamp(Math.Abs(trend) * 4, 1, 100).ToString(System.Globalization.CultureInfo.InvariantCulture)" height="12" rx="3" /> }</svg>
+                    <span class="signal-value">@(stock.TrendPercent is { } value ? value.ToString("+0.0;-0.0;0.0") + "%" : "—")<small>vs SMA50</small></span>
+                    <span class="signal-label">@stock.Signal →<small>@IndexModel.DisplayTime(stock.AsOf)</small></span>
+                </a>
+            }
+            </div>
+        }
+        <p class="signal-footnote">Coverage includes only successfully loaded, cached price histories—not all listed stocks or entire country markets. Uses daily bars and the same rules as the detail panel. No forecast or guaranteed return.</p>
+    </section>
     <div class="dashboard">
         <section class="panel explorer">
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
@@ -39,7 +62,7 @@
             }
             <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
         </section>
-        <div class="detail-column">
+        <div class="detail-column" id="stock-analysis">
         @if (Model.ShowIntradayQuote)
         {
             <section class="panel setup-panel" data-intraday-quote data-quote-url="@Url.Page("/Index", "Quote", new { Symbol = Model.Symbol })">

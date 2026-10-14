@@ -58,6 +58,7 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public AvailableCountry[] AvailableCountries => Configured ? available.Countries(Name) : [];
     public MarketData? ReadAvailable(string symbol) => Configured ? available.Read(Name, symbol) : null;
     public bool HasPrices(string symbol) => Configured && available.Read(Name, symbol) is not null;
+    public MarketData[] CachedDatasets() => available.Companies(Name).Select(x => ReadAvailable(x.Symbol)).OfType<MarketData>().ToArray();
     public Task<CompanySearchResult[]> BrowseAsync(string mic, int offset, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync("", cancellation, mic, offset) : Task.FromResult(Array.Empty<CompanySearchResult>());
     public Task<CompanySearchResult[]> FindAsync(string query, string? mic, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync(query, cancellation, mic) : SearchAsync(query, cancellation);
     public string Name => UsesMarketstack ? "Marketstack" : UsesTwelveData ? "Twelve Data" : "Yahoo Finance";

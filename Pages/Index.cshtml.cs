@@ -19,6 +19,22 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public string? Error { get; set; }
     public MarketData? Data { get; private set; }
     public Recommendation? Result { get; private set; }
+    public StockSignal[] SignalStocks { get; private set; } = [];
+    public int SignalCount(string signal) => SignalStocks.Count(x => x.Signal == signal);
+    public async Task<IActionResult> OnGetScanAsync(CancellationToken cancellation)
+    {
+        // A bounded watchlist, never a scan of the worldwide catalogue.
+        var failures = 0;
+        foreach (var symbol in new[] { "US.AAPL", "US.NVDA", "US.VOO" })
+        {
+            try { await marketData.FetchListedAsync(symbol, cancellation); }
+            catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
+            { if (cancellation.IsCancellationRequested) throw; failures++; }
+        }
+        OnGet();
+        if (failures > 0) Error = $"{failures} watchlist price requests were unavailable. Only successfully loaded histories appear in the overview.";
+        return Page();
+    }
     public BacktestResult? Backtest { get; private set; }
     public AiExplanation? Ai { get; private set; }
     public bool CanManage => !store.IsPublic || User.Identity?.IsAuthenticated == true;
@@ -78,6 +94,7 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     {
         NormalizeHorizon();
         LoadCompanies();
+        SignalStocks = SignalOverview.Build(marketData.CachedDatasets(), analysis, clock, OwnsStock);
         if (CostBps is < 0 or > 100) { Error = "Costs must be 0–100 basis points per side."; CostBps = 10; }
         try
         {
