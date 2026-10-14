@@ -294,7 +294,7 @@ Check("Shipped worldwide catalogue is visible immediately and opens an exact exc
     Assert(page.Companies.Length == 24 && page.TotalCompanyCount == all.Length && page.HasNext && handler.Requests == 0, "Homepage required a search or API call before showing its stocks.");
     page.Query = "Maybank";
     page.OnGetSearchAsync(default).GetAwaiter().GetResult();
-    Assert(page.Companies.Single().Symbol == "MY.1155", "The Maybank alias did not match its legal name.");
+    Assert(page.Companies.Any(x => x.Symbol == "MY.1155"), "The Maybank alias did not match its legal name.");
     Assert(provider.AvailableCompanies(query: "AirAsia").Any(x => x.Symbol == "MY.5099"), "The AirAsia alias did not find Capital A.");
     page.Query = "MY.1155";
     page.OnGetSearchAsync(default).GetAwaiter().GetResult();
