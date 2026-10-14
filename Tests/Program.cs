@@ -678,6 +678,9 @@ Check("Signal overview uses engine results and excludes fictional/imported datas
     Assert(signals.Length == 3 && signals.Count(x => x.Signal == "Buy") == 1 && signals.Count(x => x.Signal == "Sell") == 1 && signals.Count(x => x.Signal == "Hold") == 1, "Overview signals do not match the existing analysis engine.");
     Assert(signals.Single(x => x.Symbol == "US.RISING").TrendPercent > 0 && signals.Single(x => x.Symbol == "US.FALLING").TrendPercent < 0, "Chart trend direction is incorrect.");
     Assert(signals.All(x => x.AsOf is not null), "Overview omitted analysis timestamps.");
+    var risingPrices = signals.Single(x => x.Symbol == "US.RISING").Prices!;
+    var expected = DataValidation.CompletedDaily(rising, now).TakeLast(60).ToArray();
+    Assert(risingPrices.Length == 60 && risingPrices.Select(x => x.Close).SequenceEqual(expected.Select(x => x.Close)) && risingPrices[^1].Time == expected[^1].Time, "Overview chart does not show the latest completed provider history.");
 });
 
 Check("Radar summaries survive store recreation and expire without inventing signals", () =>
@@ -693,7 +696,8 @@ Check("Radar summaries survive store recreation and expire without inventing sig
         first.Save(new(signal.Symbol, now, signal, null));
         first.Save(new("MY.1155", now, null, "Plan restricted"));
         var restored = new RadarStore(env, config, radarClock);
-        Assert(restored.Current().Length == 2 && restored.Current().Single(x => x.Symbol == signal.Symbol).Result == signal, "Saved radar results disappeared on restart.");
+        var restoredSignal = restored.Current().Single(x => x.Symbol == signal.Symbol).Result!;
+        Assert(restored.Current().Length == 2 && restoredSignal.Signal == signal.Signal && restoredSignal.Prices!.SequenceEqual(signal.Prices!), "Saved radar results or chart history disappeared on restart.");
         Assert(restored.Current().Single(x => x.Symbol == "MY.1155").Result is null, "Restricted prices generated a signal.");
         radarClock.Now = now.AddHours(25);
         Assert(restored.Current().Length == 0, "Expired radar signals were presented as current.");

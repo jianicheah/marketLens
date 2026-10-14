@@ -29,22 +29,6 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         OnGet();
         return Page();
     }
-    public async Task<IActionResult> OnGetScanAsync(CancellationToken cancellation)
-    {
-        // Advance through the directory within the shared provider budget.
-        var failures = 0;
-        var checkedSymbols = marketData.CachedDatasets().Select(x => x.Symbol).Concat(marketData.UnavailableSymbols()).Concat((radar?.Current() ?? []).Select(x => x.Symbol)).ToHashSet();
-        var batch = marketData.AvailableCompanies(query: Query).Where(x => !checkedSymbols.Contains(x.Symbol)).Take(3).ToArray();
-        foreach (var symbol in batch.Select(x => x.Symbol))
-        {
-            try { await marketData.FetchListedAsync(symbol, cancellation); }
-            catch (Exception e) when (e is InvalidDataException or HttpRequestException or JsonException or TaskCanceledException)
-            { if (cancellation.IsCancellationRequested) throw; failures++; }
-        }
-        OnGet();
-        if (failures > 0) Error = $"{failures} batch price requests were unavailable or restricted. They are counted separately from insufficient history. Failed checks can be retried after five minutes.";
-        return Page();
-    }
     public BacktestResult? Backtest { get; private set; }
     public AiExplanation? Ai { get; private set; }
     public bool CanManage => !store.IsPublic || User.Identity?.IsAuthenticated == true;

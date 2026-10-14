@@ -46,7 +46,7 @@ public sealed class RadarWorker(MarketDataProvider marketData, RadarStore store,
             {
                 if (marketData.Configured)
                 {
-                    var current = store.Current().Select(x => x.Symbol).ToHashSet();
+                    var current = store.Current().Where(x => x.Result is null || x.Result.Prices is { Length: >= 2 }).Select(x => x.Symbol).ToHashSet();
                     var directory = marketData.AvailableCompanies();
                     var known = directory.Select(x => x.Symbol).ToHashSet();
                     // At most 100 current daily checks, leaving quota for interactive use.

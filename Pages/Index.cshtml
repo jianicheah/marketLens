@@ -7,21 +7,29 @@
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
     <section class="panel signal-overview" aria-labelledby="signal-title">
-        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">@Model.TotalCompanyCount listings accounted for · @Model.SignalStocks.Length saved histories analysed · weeks / months signals.</p></div><a class="outline signal-scan" asp-page-handler="Scan" asp-route-OwnsStock="@Model.OwnsStock" asp-route-Query="@Model.Query">Check next 3 listings →</a></div>
+        <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">@Model.TotalCompanyCount listings accounted for · @Model.SignalStocks.Length saved histories analysed · weeks / months signals.</p></div></div>
         <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT HISTORY</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Loaded history cannot support a signal</small></div><div class="signal-missing"><span>UNAVAILABLE / RESTRICTED</span><strong>@Model.UnavailableCount</strong><small>Recent failed checks; automatic retry</small></div><div class="signal-hold"><span>NOT CHECKED</span><strong>@Model.UncheckedCount</strong><small>No current history or recent failed check</small></div></div>
         @if (Model.SignalStocks.Length == 0)
-        { <p class="signal-empty">Automatic screening is starting. Results appear as provider requests finish; refresh this page shortly. You can also open a stock or check the next filtered batch. If nothing appears, check the provider key and plan access.</p> }
+        { <p class="signal-empty">Automatic screening is starting. Results appear here as provider requests finish. If nothing appears, check the provider key and plan access.</p> }
         else
         {
-            <p class="signal-axis">Bar length = absolute distance from the 50-day average (full bar = 25% or more). Colour = analysis signal, not confidence or expected return.</p>
+            <p class="signal-axis">Price lines show up to 60 completed trading days, with a separate price scale for each stock. Green = Buy · red = Sell · grey = Hold. The percentage shows the price change over the displayed dates. Click a stock for detailed analysis.</p>
             <div class="signal-chart" role="list" aria-label="Cached stock research signals">
             @foreach (var stock in Model.SignalStocks)
             {
                 var tone = stock.Signal == "Buy" ? "signal-buy" : stock.Signal == "Sell" ? "signal-sell" : stock.Signal == "Hold" ? "signal-hold" : "signal-missing";
                 <a role="listitem" class="signal-row @tone" asp-page="/Index" asp-route-Symbol="@stock.Symbol" asp-route-Horizon="swing" asp-route-OwnsStock="@Model.OwnsStock" asp-fragment="stock-analysis" aria-label="@stock.Name: @stock.Signal. @stock.Summary">
                     <span class="signal-name"><strong>@stock.Name</strong><small>@stock.Symbol</small></span>
-                    <svg class="signal-bar" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true"><rect class="signal-track" width="100" height="12" rx="3" />@if (stock.TrendPercent is { } trend) { <rect class="signal-fill" width="@Math.Clamp(Math.Abs(trend) * 4, 1, 100).ToString(System.Globalization.CultureInfo.InvariantCulture)" height="12" rx="3" /> }</svg>
-                    <span class="signal-value">@(stock.TrendPercent is { } value ? value.ToString("+0.0;-0.0;0.0") + "%" : "—")<small>vs SMA50</small></span>
+                    @if (stock.Prices is { Length: >= 2 } prices)
+                    {
+                        var change = (prices[^1].Close / prices[0].Close - 1) * 100;
+                        <span class="signal-price-chart"><svg viewBox="0 0 240 64" preserveAspectRatio="none" role="img" aria-label="@stock.Name: daily closing prices from @prices[0].Time.ToString("dd MMM yyyy") to @prices[^1].Time.ToString("dd MMM yyyy")"><polyline points="@MarketLens.Services.SignalOverview.ChartPoints(prices)" /></svg><small>@prices[0].Time.ToString("dd MMM") — @prices[^1].Time.ToString("dd MMM")</small></span>
+                        <span class="signal-value">@change.ToString("+0.0;-0.0;0.0")%<small>@stock.Currency @prices[^1].Close.ToString("N2") close</small></span>
+                    }
+                    else
+                    {
+                        <span class="signal-price-chart"><small>Price chart unavailable</small></span><span class="signal-value">—</span>
+                    }
                     <span class="signal-label">@stock.Signal →<small>@IndexModel.DisplayTime(stock.AsOf)</small></span>
                 </a>
             }
