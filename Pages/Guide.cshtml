@@ -1,0 +1,52 @@
+@page
+@{
+    ViewData["Title"] = "User guide";
+}
+<div class="workspace user-guide">
+    <div class="intro">
+        <div><p class="eyebrow">GETTING STARTED</p><h1>Your guide to MarketLens.</h1><p class="muted">Find a stock, explore the evidence, and keep your favourites close.</p></div>
+    </div>
+    <p><a class="text-link" asp-page="/Index">← Back to research</a></p>
+    <nav class="guide-index" aria-label="Guide topics">
+        <a href="#find">Find a stock</a><a href="#radar">Read the radar</a><a href="#analysis">Explore analysis</a><a href="#favourites">Save favourites</a><a href="#data">Understand the data</a>
+    </nav>
+    <div class="guide-sections">
+        <section id="find" class="panel setup-panel">
+            <p class="eyebrow">01 · DISCOVER</p><h2>Find a stock</h2>
+            <p>On the research page, filter the saved company list by company name or ticker, such as Apple or US.AAPL. Use the page controls to browse more results, then select <strong>View →</strong> to open a listing.</p>
+            <p>A listing in the directory does not guarantee that its prices are available. Some exchanges or instruments need a different provider plan.</p>
+        </section>
+        <section id="radar" class="panel setup-panel">
+            <p class="eyebrow">02 · SCREEN</p><h2>Read the research radar</h2>
+            <p>The radar groups checked listings by their calculation-based signal. Select a stock row to open its detailed analysis.</p>
+            <ul>
+                <li><strong>Buy:</strong> the disclosed rules favour considering a purchase or adding exposure.</li>
+                <li><strong>Hold:</strong> retain an existing position, or wait if you do not own the stock.</li>
+                <li><strong>Sell:</strong> review reducing an existing holding; if you do not own it, avoid entry. This is not a short-selling signal.</li>
+                <li><strong>Not checked / insufficient data:</strong> a listing has not been screened yet, or the required evidence is unavailable. Neither is a Buy, Hold or Sell result.</li>
+            </ul>
+            <p>The small price lines show up to 60 completed trading days. Each has its own scale; the percentage is the change over the displayed dates. Colour represents the signal, so it need not match the direction of the price line.</p>
+            <p>Screening runs automatically over a limited number of listings each day. Some categories may be empty, and the whole directory is not analysed at once.</p>
+        </section>
+        <section id="analysis" class="panel setup-panel">
+            <p class="eyebrow">03 · INVESTIGATE</p><h2>Explore a stock’s analysis</h2>
+            <p>Read the chart, signal reasons, evidence timestamps and risks together. The default weeks / months analysis uses completed daily prices. Where other timeframes are available, they require their own supporting data.</p>
+            <p>Select <strong>I own this stock</strong> when relevant, then select <strong>Analyse</strong>. This changes the context of the explanation; it does not connect a brokerage account or place a trade.</p>
+            <p>A historical strategy check appears when enough daily history is available. The cost field is in basis points per side: 10 bps means 0.1% for each purchase or sale. Past results do not predict future returns.</p>
+            <p>Use <strong>Download analysis JSON</strong> to save the research result. Any ATR stop or target shown is an illustrative reference, not an order.</p>
+        </section>
+        <section id="favourites" class="panel setup-panel">
+            <p class="eyebrow">04 · KEEP TRACK</p><h2>Save your favourites</h2>
+            <p>Select <strong>☆ Favourite</strong> beside a listing or in its detail view. Your saved stocks appear in <strong>Your favourites</strong>, where you can reopen or remove them.</p>
+            <p>Favourites require JavaScript and browser storage. They stay in this browser profile, without a login; they do not sync between devices. Clearing browser storage removes them, and people sharing the same browser profile share the list.</p>
+        </section>
+        <section id="data" class="panel setup-panel">
+            <p class="eyebrow">05 · KNOW THE LIMITS</p><h2>Understand prices and missing data</h2>
+            <p>Market data comes from the website’s configured provider, currently Twelve Data. Check the source and timestamps shown with each result. Daily research signals use completed bars, not the latest intraday quote.</p>
+            <p>The intraday price widget requests a snapshot periodically while the page is open. It is not a tick-by-tick feed; market closures, provider delays, plan restrictions and request limits can affect availability. An older retained quote is labelled when a refresh fails.</p>
+            <p>If data is missing or a request fails, read the message and try again later when appropriate. Refreshing the page does not guarantee fresh prices or bypass provider limits.</p>
+            <p>Signals follow disclosed calculation rules. AI explanations are optional and appear only when enabled; AI does not generate every signal. MarketLens is for research and information, not personalised financial advice, and does not execute trades or connect to your moomoo account.</p>
+        </section>
+    </div>
+    <p class="guide-return"><a class="outline" asp-page="/Index">Start researching →</a></p>
+</div>

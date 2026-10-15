@@ -9,3 +9,23 @@
 .signal-overview{margin-bottom:24px;padding:26px;background:linear-gradient(135deg,#fff,#f2f8f5)}.signal-heading{display:flex;justify-content:space-between;gap:20px;align-items:center}.signal-heading h2{font-size:25px;letter-spacing:-.7px;margin-bottom:8px}.signal-heading .muted{font-size:12px}.signal-totals{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}.signal-totals>div{border:1px solid var(--line);border-radius:12px;padding:18px;background:white}.signal-totals span{font-size:10px;font-weight:750;letter-spacing:1px}.signal-totals strong{display:block;font-size:34px;margin:6px 0}.signal-totals small,.signal-name small,.signal-label small,.signal-value small{display:block;color:var(--muted);font-size:10px;margin-top:5px}.signal-buy{color:#087c66}.signal-sell{color:#b84a45}.signal-hold{color:#64758a}.signal-missing{color:#8b774d}.signal-axis,.signal-footnote,.signal-empty{font-size:11px;color:var(--muted);line-height:1.7}.signal-empty{padding:20px 0}.signal-chart{max-height:380px;overflow:auto;margin:14px 0}.signal-row{display:grid;grid-template-columns:minmax(140px,1.2fr) minmax(70px,2fr) 75px minmax(100px,1fr);align-items:center;gap:18px;padding:15px 10px;border-top:1px solid var(--line);border-radius:6px}.signal-row:hover{background:#fff;box-shadow:0 2px 12px #17353010}.signal-name{color:var(--ink);font-size:12px}.signal-value{text-align:right;font-size:13px;font-weight:600}.signal-label{font-size:12px;font-weight:700}.signal-footnote{margin-bottom:0}#stock-analysis{scroll-margin-top:20px}@media(max-width:650px){.signal-overview{padding:20px}.signal-heading{align-items:flex-start;flex-direction:column}.signal-totals{grid-template-columns:repeat(2,1fr)}.signal-row{grid-template-columns:minmax(90px,1fr) 1fr 55px;gap:10px}.signal-label{grid-column:1/-1}.signal-label small{display:inline;margin-left:10px}}
 .signal-totals{grid-template-columns:repeat(3,1fr)}@media(max-width:650px){.signal-totals{grid-template-columns:repeat(2,1fr)}}
 .signal-price-chart{display:block;min-width:0}.signal-price-chart svg{display:block;width:100%;height:64px}.signal-price-chart polyline{fill:none;stroke:currentColor;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}.signal-price-chart small{display:block;font-size:10px;color:var(--muted);margin-top:5px}.signal-row{grid-template-columns:minmax(140px,1.2fr) minmax(140px,2fr) 95px minmax(100px,1fr)}@media(max-width:650px){.signal-row{grid-template-columns:minmax(90px,1fr) 90px}.signal-price-chart{grid-column:1/-1;grid-row:2}.signal-price-chart svg{height:76px}.signal-label{grid-column:1/-1}}
+
+/* Shared identity and a quiet footer watermark that stays below page content. */
+body{min-height:100vh;min-height:100svh;display:flex;flex-direction:column}
+body>main{flex:1}
+.brand-logo{display:block;width:210px;max-width:100%;height:auto}
+.site-footer{border-top:1px solid var(--line);margin-top:24px;padding:28px 20px 30px}
+.footer-watermark{display:block;width:180px;max-width:100%;height:auto;margin:0 auto 16px;opacity:.38;filter:grayscale(1);user-select:none}
+.site-footer p{margin:0}
+@media(max-width:520px){.topbar{gap:16px;padding:18px 16px}.brand{min-width:0}.brand-logo{width:165px}.toplinks{flex-shrink:0}.footer-watermark{width:155px}}
+
+.user-guide{width:100%;max-width:1000px}
+.guide-index{display:flex;flex-wrap:wrap;gap:10px;margin:24px 0}
+.guide-index a{padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:white;font-size:12px}
+.guide-index a:hover{background:#e5f3ed;color:var(--accent)}
+.guide-sections{display:grid;gap:18px}
+.guide-sections section{scroll-margin-top:24px}
+.guide-sections h2{font-size:21px;letter-spacing:-.4px}
+.guide-sections .eyebrow{font-size:10px;margin-top:0}
+.guide-sections p:last-child{margin-bottom:0}
+.guide-return{margin-top:28px;line-height:3}

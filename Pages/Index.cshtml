@@ -3,7 +3,11 @@
 @using System.Globalization
 @{ ViewData["Title"] = "Research"; }
 <div class="workspace">
-    <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div>@if (Model.CanManage) { <a class="outline" asp-page="/Data">Manage data ↗</a> }</div>
+    <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div>
+        @* Retained for future use.
+        @if (Model.CanManage) { <a class="outline" asp-page="/Data">Manage data ↗</a> }
+        *@
+    </div>
     @if (Model.Notice is not null) { <aside class="notice">@Model.Notice</aside> }
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
     <section class="panel signal-overview" aria-labelledby="signal-title">
@@ -68,7 +72,7 @@
                     @if (Model.HasNext) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next companies →</a> }
                 </nav>
             }
-            <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div>
+            @* <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div> *@
         </section>
         <div class="detail-column" id="stock-analysis">
         @if (Model.ShowIntradayQuote)

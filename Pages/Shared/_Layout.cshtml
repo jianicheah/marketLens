@@ -6,14 +6,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>@ViewData["Title"] · MarketLens</title>
+    <link rel="icon" type="image/svg+xml" href="~/images/marketlens-mark.svg" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
 
 <body>
-    <header class="topbar"><a class="brand" asp-page="/Index"><span class="brand-mark">M</span> MarketLens</a>
-        <nav class="toplinks"><a asp-page="/Index">Research</a>@if (!Hosting.IsPublic || User.Identity?.IsAuthenticated
+    <header class="topbar"><a class="brand" asp-page="/Index" aria-label="MarketLens home"><img class="brand-logo" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" /></a>
+        <nav class="toplinks"><a asp-page="/Guide">User guide</a>@if (!Hosting.IsPublic || User.Identity?.IsAuthenticated
             == true) {
-                <a asp-page="/Data">Manage data</a>
+                @* Retained for future use: <a asp-page="/Data">Manage data</a> *@
             } else
             {
 
@@ -32,9 +33,12 @@
         explanations appear only when a model is enabled. Make investments through a trusted, regulated
         platform.</span></aside>
         <main>@RenderBody()</main>
-        <footer>Personal research workspace · Rule-based signals · No trade execution<br />AI feature notice: This is AI
+        <footer class="site-footer">
+            <img class="footer-watermark" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" />
+            <p>Personal research workspace · Rule-based signals · No trade execution<br />AI feature notice: This is AI
             analysis only. For information only; not financial advice.<br />Make investments through a trusted, regulated
-            platform. Review evidence and risks before acting.</footer>
+            platform. Review evidence and risks before acting.</p>
+        </footer>
             @await RenderSectionAsync("Scripts", required: false)
         </body>
 
