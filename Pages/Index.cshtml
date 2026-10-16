@@ -44,7 +44,7 @@
     <div class="dashboard">
         <section class="panel explorer">
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
-            <div class="market-browser">
+            <div class="market-browser" id="company-list">
                 <div class="browser-heading"><h2>Stocks and ETFs</h2><span class="count">@Model.TotalCompanyCount total listings</span></div>
                 <p class="muted">Browse stocks and ETFs below. US, MY, SG and HK codes identify the market. Directory listings do not guarantee price access; prices depend on the connected provider plan.</p>
                 <p class="list-note">Catalogue checked: @IndexModel.DisplayTime(Model.CatalogueCheckedAt). @if (Model.CatalogueRefreshFailed) { <span>Refresh unavailable; showing the last valid list.</span> } else if (Model.CatalogueCheckedAt is null) { <span>Showing the bundled list while checking for updates.</span> }</p>
@@ -68,8 +68,9 @@
             @if (Model.BrowseOffset > 0 || Model.HasNext)
             {
                 <nav class="browse-pages" aria-label="Company pages">
-                    @if (Model.BrowseOffset > 0) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Math.Max(0, Model.BrowseOffset - 24))">← Previous</a> }
-                    @if (Model.HasNext) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + 24)">Next companies →</a> }
+                    @if (Model.BrowseOffset > 0) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset - IndexModel.CompanyPageSize)" asp-route-Horizon="@Model.Horizon" asp-fragment="company-list">← Previous</a> }
+                    <span class="page-count">Page @Model.CompanyPage of @Model.CompanyPageCount</span>
+                    @if (Model.HasNext) { <a class="text-link" asp-page-handler="Browse" asp-route-Query="@Model.Query" asp-route-BrowseOffset="@(Model.BrowseOffset + IndexModel.CompanyPageSize)" asp-route-Horizon="@Model.Horizon" asp-fragment="company-list">Next →</a> }
                 </nav>
             }
             @* <div class="setup-panel"><h2>Daily market data</h2><p class="muted">Browse the available companies and save favourites in this browser. Prices are daily closing data; their retrieval times are shown with each analysis.</p><a class="text-link" asp-page="/Index" asp-route-Demo="true">Explore a fictional demonstration</a></div> *@

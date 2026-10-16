@@ -53,6 +53,9 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         if (!marketData.Configured || quotes is null) return new JsonResult(new StockQuoteResult(null, "The website's intraday data connection is not configured.", 300));
         return new JsonResult(await quotes.GetAsync(listing, cancellation));
     }
+    public const int CompanyPageSize = 10;
+    public int CompanyPage => BrowseOffset / CompanyPageSize + 1;
+    public int CompanyPageCount => Math.Max(1, (MatchingCount + CompanyPageSize - 1) / CompanyPageSize);
     public bool HasNext { get; private set; }
     public string ResultsTitle { get; private set; } = "Available companies";
     public string ListingStatus(string symbol) => marketData.ReadAvailable(symbol) is { } data
@@ -67,9 +70,9 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
         ResultsTitle = Country is null ? "Available companies" : AvailableCompanyCatalog.CountryName(Country) + " companies";
         var matches = marketData.AvailableCompanies(Country, Query);
         MatchingCount = matches.Length;
-        if (BrowseOffset >= MatchingCount) BrowseOffset = Math.Max(0, (MatchingCount - 1) / 24 * 24);
-        Companies = matches.Skip(BrowseOffset).Take(24).ToArray();
-        HasNext = (long)BrowseOffset + 24 < MatchingCount;
+        BrowseOffset = Math.Min(BrowseOffset / CompanyPageSize, CompanyPageCount - 1) * CompanyPageSize;
+        Companies = matches.Skip(BrowseOffset).Take(CompanyPageSize).ToArray();
+        HasNext = (long)BrowseOffset + CompanyPageSize < MatchingCount;
     }
     [BindProperty(SupportsGet = true)] public bool AutoFetch { get; set; }
     public async Task OnGetAsync(CancellationToken cancellation)

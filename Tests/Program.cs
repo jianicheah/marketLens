@@ -294,7 +294,7 @@ Check("Shipped worldwide catalogue is visible immediately and opens an exact exc
     var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
     var page = new MarketLens.Pages.IndexModel(store, provider, engine, backtest, new AiExplanationService(factory, config), clock);
     page.OnGetAsync(default).GetAwaiter().GetResult();
-    Assert(page.Companies.Length == 24 && page.TotalCompanyCount == all.Length && page.HasNext && handler.Requests == 0, "Homepage required a search or API call before showing its stocks.");
+    Assert(page.Companies.Length == 10 && page.TotalCompanyCount == all.Length && page.HasNext && handler.Requests == 0, "Homepage required a search or API call before showing its stocks.");
     page.Query = "Maybank";
     page.OnGetSearchAsync(default).GetAwaiter().GetResult();
     Assert(page.Companies.Any(x => x.Symbol == "MY.1155"), "The Maybank alias did not match its legal name.");
@@ -420,7 +420,14 @@ Check("Homepage lists the saved cross-country catalogue and search spends no quo
     var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
     var page = new MarketLens.Pages.IndexModel(store, provider, engine, backtest, new AiExplanationService(factory, config), clock);
     page.OnGetAsync(default).GetAwaiter().GetResult();
-    Assert(page.TotalCompanyCount == 13 && page.Companies.Length == 13, "Full saved catalogue was not visible before searching.");
+    Assert(page.TotalCompanyCount == 13 && page.Companies.Length == 10 && page.CompanyPage == 1 && page.CompanyPageCount == 2 && page.HasNext, "First company page must contain ten listings.");
+    var firstPageSymbols = page.Companies.Select(x => x.Symbol).ToHashSet();
+    page.BrowseOffset = 10;
+    page.OnGetBrowseAsync(default).GetAwaiter().GetResult();
+    Assert(page.Companies.Length == 3 && page.CompanyPage == 2 && !page.HasNext && !page.Companies.Any(x => firstPageSymbols.Contains(x.Symbol)), "Last company page must contain the remaining listings without duplicates.");
+    page.BrowseOffset = int.MaxValue;
+    page.OnGetBrowseAsync(default).GetAwaiter().GetResult();
+    Assert(page.BrowseOffset == 10 && page.Companies.Length == 3, "Out-of-range company pages must return the last page.");
     page.Query = "MY."; page.BrowseOffset = 24;
     page.OnGetSearchAsync(default).GetAwaiter().GetResult();
     Assert(page.BrowseOffset == 0 && page.Companies.Single().Symbol == "MY.1155" && page.MatchingCount == 1, "Local prefix search failed.");
