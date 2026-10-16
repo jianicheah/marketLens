@@ -35,9 +35,7 @@
         <main>@RenderBody()</main>
         <footer class="site-footer">
             <img class="footer-watermark" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" />
-            <p>Personal research workspace · Rule-based signals · No trade execution<br />AI feature notice: This is AI
-            analysis only. For information only; not financial advice.<br />Make investments through a trusted, regulated
-            platform. Review evidence and risks before acting.</p>
+            <p>&copy; @DateTime.Now.Year MarketLens. All rights reserved.</p>
         </footer>
             @await RenderSectionAsync("Scripts", required: false)
         </body>
