@@ -13,7 +13,12 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
     private DateOnly creditDay;
     private int minuteRequests;
     private int dailyRequests;
-    private DateTimeOffset retryAfter;
+    private long retryAfterTicks;
+    private DateTimeOffset retryAfter
+    {
+        get => new(Interlocked.Read(ref retryAfterTicks), TimeSpan.Zero);
+        set => Interlocked.Exchange(ref retryAfterTicks, value.UtcTicks);
+    }
     private static readonly CompanySearchResult[] Catalogue =
     [
         new("US.AAPL", "AAPL", "Apple Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.MSFT", "MSFT", "Microsoft Corporation", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.NVDA", "NVDA", "NVIDIA Corporation", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.AMZN", "AMZN", "Amazon.com Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.GOOGL", "GOOGL", "Alphabet Inc. Class A", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.META", "META", "Meta Platforms Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.TSLA", "TSLA", "Tesla Inc.", "NASDAQ", ExchangeMic: "XNAS", Currency: "USD"), new("US.JPM", "JPM", "JPMorgan Chase & Co.", "NYSE", ExchangeMic: "XNYS", Currency: "USD"), new("US.V", "V", "Visa Inc.", "NYSE", ExchangeMic: "XNYS", Currency: "USD"), new("US.WMT", "WMT", "Walmart Inc.", "NYSE", ExchangeMic: "XNYS", Currency: "USD")
@@ -98,6 +103,11 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
             if (minuteRequests >= minuteLimit || dailyRequests >= dailyLimit)
                 throw new InvalidDataException("The website's shared Twelve Data request budget is exhausted. Cached data may remain available; please try again later.");
             minuteRequests++; dailyRequests++;
+        }
+        finally { gate.Release(); }
+        // Reserve credits under the lock; network latency must not block other requests.
+        try
+        {
             using var response = await clients.CreateClient("TwelveData").GetAsync(path + (path.Contains('?') ? "&" : "?") + "apikey=" + Uri.EscapeDataString(key), cancellation);
             if ((int)response.StatusCode == 429) { retryAfter = clock.GetUtcNow().AddMinutes(1); throw new InvalidDataException("Twelve Data rate or daily-credit limit was reached. Please try again later."); }
             var body = await response.Content.ReadAsStringAsync(cancellation);
@@ -117,7 +127,6 @@ public sealed class TwelveDataProvider(IHttpClientFactory clients, IMemoryCache 
             return document.RootElement.Clone();
         }
         catch (HttpRequestException) { throw new InvalidDataException("The Twelve Data connection failed. No prices were retrieved."); }
-        finally { gate.Release(); }
     }
 
     public static MarketData Parse(JsonElement root, CompanySearchResult company, DateTimeOffset now)

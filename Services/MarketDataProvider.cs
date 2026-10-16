@@ -63,13 +63,15 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public Task<CompanySearchResult[]> FindAsync(string query, string? mic, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync(query, cancellation, mic) : SearchAsync(query, cancellation);
     public string Name => UsesMarketstack ? "Marketstack" : UsesTwelveData ? "Twelve Data" : "Yahoo Finance";
     public Task<CompanySearchResult[]> SearchAsync(string query, CancellationToken cancellation) => UsesMarketstack ? marketstack.SearchAsync(query, cancellation) : UsesTwelveData ? twelve.SearchAsync(query, cancellation) : yahoo.SearchAsync(query, cancellation);
-    private readonly SemaphoreSlim visitorGate = new(1, 1);
+    private readonly SemaphoreSlim[] visitorGates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset Until, string Reason)> failedUntil = new();
     public string[] UnavailableSymbols() => failedUntil.Where(x => x.Value.Until > DateTimeOffset.UtcNow).Select(x => x.Key).ToArray();
     public async Task<MarketData> FetchListedAsync(string symbol, CancellationToken cancellation)
     {
         if (!AvailableCompanies().Any(x => x.Symbol == symbol)) throw new InvalidDataException("This company is not in the website's company list.");
         if (!Configured) throw new InvalidDataException("Daily prices are unavailable because the website data connection is not configured.");
+        var ready = ReadAvailable(symbol); if (ready is not null) return ready;
+        var visitorGate = visitorGates[(int)((uint)StringComparer.Ordinal.GetHashCode(symbol) % (uint)visitorGates.Length)];
         await visitorGate.WaitAsync(cancellation);
         try
         {

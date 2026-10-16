@@ -8,6 +8,27 @@ using Microsoft.Extensions.Caching.Memory;
 
 
 
+CheckConcurrentProviderRequests();
+void CheckConcurrentProviderRequests()
+{
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    using var handler = new ConcurrentSearchHandler();
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+        ["MarketData:TwelveDataApiKey"] = "fixture-test-key", ["MarketData:TwelveDataCreditsPerMinute"] = "2" }).Build();
+    var provider = new TwelveDataProvider(new PublicClients(handler), cache, TimeProvider.System, config);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var first = provider.SearchAsync("Apple", timeout.Token);
+    var second = provider.SearchAsync("Microsoft", timeout.Token);
+    try
+    {
+        handler.BothStarted.Task.WaitAsync(timeout.Token).GetAwaiter().GetResult();
+        try { provider.SearchAsync("Third", timeout.Token).GetAwaiter().GetResult(); throw new Exception("Concurrent requests exceeded the shared budget."); }
+        catch (InvalidDataException) { }
+    }
+    finally { handler.Release.TrySetResult(true); }
+    Task.WhenAll(first, second).GetAwaiter().GetResult();
+    Console.WriteLine("PASS Provider downloads overlap while preserving the shared request budget");
+}
 var now = new DateTimeOffset(2026, 10, 9, 18, 0, 0, TimeSpan.Zero);
 var clock = new FixedClock(now);
 var engine = new AnalysisService(clock);
@@ -754,6 +775,18 @@ sealed class FakeIntradayHandler(DateTimeOffset now) : HttpMessageHandler
     public string Payload => JsonSerializer.Serialize(new { symbol = "1155", mic_code = "XKLS", currency = "MYR", close = "10", timestamp = now.AddMinutes(-1).ToUnixTimeSeconds(), is_market_open = true });
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     { Requests++; LastQuery = request.RequestUri!.Query; return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(Payload) }); }
+}
+sealed class ConcurrentSearchHandler : HttpMessageHandler
+{
+    private int requests;
+    public TaskCompletionSource<bool> BothStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (Interlocked.Increment(ref requests) == 2) BothStarted.TrySetResult(true);
+        await Release.Task.WaitAsync(cancellationToken);
+        return new(HttpStatusCode.OK) { Content = new StringContent("{\"data\":[]}") };
+    }
 }
 sealed class PublicClients(HttpMessageHandler handler) : IHttpClientFactory
 {
