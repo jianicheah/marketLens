@@ -1,4 +1,8 @@
-# Active provider: Twelve Data
+# InfinityFree deployment: Yahoo Finance
+
+The PHP version for InfinityFree is in `InfinityFree/htdocs`. It uses Yahoo Finance for market data, including session-cookie/token authorization for company fundamentals. Run `Tools/Build-InfinityFree.ps1` to generate `dist/MarketLens-InfinityFree.zip`; upload its contents into your hosting account's `htdocs`. See [InfinityFree setup and feature differences](InfinityFree/README.md). The .NET/Render deployment below retains its existing Twelve Data configuration. The PHP package still needs hosted acceptance testing; a successful diagnostic does not verify the complete application.
+
+# .NET/Render provider: Twelve Data
 
 The homepage research radar shows Buy, Sell and Hold signals alongside small price line charts for up to 60 completed trading days. Each chart has its own price scale, date range, latest close and percentage change over that displayed range. Colour indicates the research signal. Clicking a row opens the detailed analysis below. Charts use real provider history saved with radar results; unavailable history is labelled rather than fabricated. Screening runs automatically; there is no manual next-batch button.
 

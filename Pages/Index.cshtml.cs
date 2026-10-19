@@ -44,6 +44,8 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
     public int TotalCompanyCount { get; private set; }
     public DateTimeOffset? CatalogueCheckedAt => marketData.CatalogueCheckedAt;
     public bool CatalogueRefreshFailed => marketData.CatalogueRefreshFailed;
+    public bool UsesYahoo => !marketData.UsesManagedProvider;
+    public bool ShowingSavedFallback { get; private set; }
     public bool ShowIntradayQuote => !Demo && marketData.UsesTwelveData && Symbol is not null && marketData.AvailableCompanies().Any(x => x.Symbol == Symbol);
     public async Task<IActionResult> OnGetQuoteAsync(CancellationToken cancellation)
     {
@@ -108,7 +110,15 @@ public class IndexModel(DatasetStore store, MarketDataProvider marketData, Analy
             else
             {
                 Symbol ??= Symbols.FirstOrDefault();
-                if (Symbol is not null && DataValidation.ValidSymbol(Symbol)) Data = marketData.ReadAvailable(Symbol) ?? store.Read(Symbol);
+                if (Symbol is not null && DataValidation.ValidSymbol(Symbol))
+                {
+                    Data = marketData.ReadAvailable(Symbol);
+                    if (Data is null)
+                    {
+                        Data = store.Read(Symbol);
+                        ShowingSavedFallback = Data is not null;
+                    }
+                }
                 if (Symbol is not null && Data is null && Error is null) Error = "Daily prices could not be loaded for this company. Please try again shortly.";
             }
             if (Data is not null)

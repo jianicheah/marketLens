@@ -215,6 +215,45 @@ Check("Direct public fetch requires no credentials and caches repeated requests"
     Assert(fetched.Fundamentals is not null && fetched.Source.Contains("Yahoo"), "Direct data fetch incomplete.");
     Assert(handler.Requests == 3 && !handler.SentCredentials && ReferenceEquals(fetched, repeated), "Cache/auth behaviour incorrect.");
 });
+Check("Yahoo retains the worldwide directory and replaces old saved data on opening a listing", () =>
+{
+    using var yahooHandler = new FakePublicHandler(Fixture);
+    var clients = new PublicClients(yahooHandler);
+    using var prices = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> {
+        ["MarketData:Provider"] = "Yahoo",
+        ["MarketData:CompanyCatalogPath"] = Path.Combine(AppContext.BaseDirectory, "Catalogue", "company-catalogue-twelvedata.json"),
+        ["Hosting:PublicMode"] = "true", ["RENDER_EXTERNAL_HOSTNAME"] = "marketlens.onrender.com" }).Build();
+    var market = new MarketDataProvider(new PublicMarketDataProvider(clients, cache, clock), new MarketstackDataProvider(clients, cache, clock, config), new TwelveDataProvider(clients, cache, clock, config), config, prices);
+    var listed = market.AvailableCompanies();
+    Assert(listed.Length > 10000 && new[] { "US.AAPL", "MY.1155", "SG.D05", "HK.0700" }.All(s => listed.Any(x => x.Symbol == s)), "Switching to Yahoo hid the bundled market directory.");
+    Assert(market.AvailableCompanies(query: "Maybank").Any(x => x.Symbol == "MY.1155") && yahooHandler.Requests == 0, "Yahoo directory filtering requires a network search.");
+    var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
+    store.Save(flat with { Symbol = "US.AAPL", Name = "Previously saved Apple", RetrievedAt = now.AddDays(-12), Daily = Bars(120, _ => 100, now.AddDays(-12)) });
+    var page = new MarketLens.Pages.IndexModel(store, market, engine, backtest, new AiExplanationService(clients, config), clock) { Symbol = "US.AAPL" };
+    page.OnGetAsync(default).GetAwaiter().GetResult();
+    Assert(page.Error is null && page.Data?.RetrievedAt == now && page.Data.Name != "Previously saved Apple" && !page.ShowingSavedFallback, "Opening a Yahoo listing silently kept the old local file.");
+    Assert(yahooHandler.Requests == 3 && page.TotalCompanyCount > 10000, "Yahoo did not fetch chart/search/statements through its own connector.");
+});
+Check("Yahoo request failures retain explicit saved-data status and stale price dates", () =>
+{
+    using var yahooHandler = new FakePublicHandler(Fixture) { Status = HttpStatusCode.Forbidden };
+    var clients = new PublicClients(yahooHandler);
+    using var prices = new AvailableCompanyCatalog(clock);
+    using var cache = new MemoryCache(new MemoryCacheOptions());
+    var config = TestSettings().AddInMemoryCollection(new Dictionary<string,string?> {
+        ["MarketData:Provider"] = "Yahoo", ["MarketData:CompanyCatalogPath"] = Path.Combine(AppContext.BaseDirectory, "Catalogue", "company-catalogue-twelvedata.json"),
+        ["Hosting:PublicMode"] = "true", ["RENDER_EXTERNAL_HOSTNAME"] = "marketlens.onrender.com" }).Build();
+    var market = new MarketDataProvider(new PublicMarketDataProvider(clients, cache, clock), new MarketstackDataProvider(clients, cache, clock, config), new TwelveDataProvider(clients, cache, clock, config), config, prices);
+    var store = new DatasetStore(new CheckEnvironment(), clock, new RenderHosting(config));
+    var old = flat with { Symbol = "US.AAPL", RetrievedAt = now.AddDays(-12), Daily = Bars(120, _ => 100, now.AddDays(-12)) };
+    store.Save(old);
+    var page = new MarketLens.Pages.IndexModel(store, market, engine, backtest, new AiExplanationService(clients, config), clock) { Symbol = "US.AAPL" };
+    page.OnGetAsync(default).GetAwaiter().GetResult();
+    Assert(page.Error?.Contains("403") == true && page.ShowingSavedFallback && page.Result?.Signal == "Insufficient data", "A failed Yahoo refresh hid fallback status or produced a current signal.");
+    Assert(page.Result!.AsOf == old.Daily[^1].Time && page.Result.Summary.Contains(old.Daily[^1].Time.ToString("yyyy-MM-dd")), "Stale history omitted the actual price date.");
+});
 Check("Local hosting accepts loopback only", () =>
 {
     var settings = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
@@ -795,13 +834,14 @@ sealed class PublicClients(HttpMessageHandler handler) : IHttpClientFactory
 sealed class FakePublicHandler(Func<string, string> fixture) : HttpMessageHandler
 {
     public int Requests { get; private set; }
+    public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
     public bool SentCredentials { get; private set; }
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests++; SentCredentials |= request.Headers.Authorization is not null || request.Headers.Contains("Cookie");
         var path = request.RequestUri!.AbsolutePath;
         var file = path.Contains("chart") ? "yahoo-aapl.json" : path.Contains("search") ? "yahoo-search-aapl.json" : "yahoo-fundamentals.json";
-        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(fixture(file)) });
+        return Task.FromResult(new HttpResponseMessage(Status) { Content = new StringContent(fixture(file)) });
     }
 }
 sealed class LivePublicClients : IHttpClientFactory

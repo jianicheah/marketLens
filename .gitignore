@@ -3,3 +3,9 @@ obj/
 .vs/
 App_Data/
 *.user
+.tools/
+dist/
+InfinityFree/htdocs/storage/*
+!InfinityFree/htdocs/storage/.htaccess
+!InfinityFree/htdocs/storage/index.php
+Tests/InfinityFree/.cache-*/

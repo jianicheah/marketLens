@@ -1,0 +1,5 @@
+DirectoryIndex index.php
+Options -Indexes
+<FilesMatch "^(config|.*\.log)$">
+Require all denied
+</FilesMatch>

@@ -70,7 +70,8 @@ public sealed class AnalysisService(TimeProvider clock)
         {
             bars = DataValidation.CompletedDaily(data, now);
             if (bars.Length < 60) return Missing("At least 60 completed daily bars are required; today's incomplete bar is excluded.");
-            if (now - bars[^1].Time > TimeSpan.FromDays(5)) return Missing("Latest completed daily bar is older than five days. Refresh data before using a current signal.");
+            if (now - bars[^1].Time > TimeSpan.FromDays(5))
+                return Missing($"Latest completed daily bar is older than five days (latest: {bars[^1].Time:yyyy-MM-dd}). Refresh data before using a current signal.") with { AsOf = bars[^1].Time };
             if (!data.SplitAdjusted) return Missing("Confirm split-adjusted prices before comparing trends across dates.");
             if (bars[^1].Time - bars[^60].Time > TimeSpan.FromDays(180)) return Missing("Daily history is too sparse for the 20/50-session model. Import regular daily observations.");
             risks.Add("Swing signal uses the latest completed daily close, not a forecast of today's price movement.");

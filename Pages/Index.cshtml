@@ -46,8 +46,9 @@
             <div class="panel-heading"><h2>Your favourites</h2><span class="count" id="favourite-count">0 saved</span></div><div id="favourites-list" class="stock-list"></div><p id="favourites-status" class="list-note" role="status">Favourites are saved in this browser. No login required.</p><noscript><p class="empty">Enable JavaScript to use browser favourites.</p></noscript>
             <div class="market-browser" id="company-list">
                 <div class="browser-heading"><h2>Stocks and ETFs</h2><span class="count">@Model.TotalCompanyCount total listings</span></div>
-                <p class="muted">Browse stocks and ETFs below. US, MY, SG and HK codes identify the market. Directory listings do not guarantee price access; prices depend on the connected provider plan.</p>
-                <p class="list-note">Catalogue checked: @IndexModel.DisplayTime(Model.CatalogueCheckedAt). @if (Model.CatalogueRefreshFailed) { <span>Refresh unavailable; showing the last valid list.</span> } else if (Model.CatalogueCheckedAt is null) { <span>Showing the bundled list while checking for updates.</span> }</p>
+                <p class="muted">Browse stocks and ETFs below. US, MY, SG and HK codes identify the market. @if (Model.UsesYahoo) { <span>Yahoo price availability is checked when you open a listing; directory coverage does not guarantee prices.</span> } else { <span>Directory listings do not guarantee price access; prices depend on the connected provider plan.</span> }</p>
+                @if (Model.UsesYahoo) { <p class="list-note">Showing the bundled reference directory. Prices are fetched separately from Yahoo Finance.</p> }
+                else { <p class="list-note">Catalogue checked: @IndexModel.DisplayTime(Model.CatalogueCheckedAt). @if (Model.CatalogueRefreshFailed) { <span>Refresh unavailable; showing the last valid list.</span> } else if (Model.CatalogueCheckedAt is null) { <span>Showing the bundled list while checking for updates.</span> }</p> }
                 @if (!string.IsNullOrWhiteSpace(Model.Query)) { <p class="list-note">@Model.MatchingCount matching listings</p> }
                 @if (!Model.SourceConfigured)
                 {
@@ -108,6 +109,7 @@
         else
         {
             <section class="panel company-detail"><div class="panel-heading"><div><p class="eyebrow">@data.Symbol / @IndexModel.DisplaySource(data.Source)</p><h2 class="company-title">@data.Name</h2></div><span class="count">@(data.IsSample ? "FICTIONAL DATA" : data.IsImported ? "IMPORTED DATA" : "PUBLIC MARKET DATA")</span></div>
+                @if (Model.ShowingSavedFallback) { <aside class="notice inset"><strong>Previously saved data.</strong> A current provider response was not loaded. This history was retrieved @IndexModel.DisplayTime(data.RetrievedAt); its original source and price dates are shown below.</aside> }
                 @if (data.IsSample) { <aside class="notice inset"><strong>Fictional demonstration.</strong> These prices and results cannot inform a real investment.</aside> }
                 <div class="quote"><strong><span>@data.Currency</span> @(data.Price?.ToString("N2") ?? "—")</strong><span class="muted">@(data.Quote is null ? "Latest stored daily close" : "Snapshot price · " + data.Quote.MarketState)</span></div>
                 <p class="list-note">@(data.Quote is null ? "Daily bar time" : "Quote time"): @IndexModel.DisplayTime(data.Quote?.UpdatedAt ?? data.Daily.LastOrDefault()?.Time) · Retrieved: @IndexModel.DisplayTime(data.RetrievedAt)</p>

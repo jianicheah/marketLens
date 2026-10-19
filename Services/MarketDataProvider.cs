@@ -36,8 +36,12 @@ public sealed class MarketDataProvider(PublicMarketDataProvider yahoo, Marketsta
     public CompanySearchResult[] Popular => AvailableCompanies().Take(10).ToArray();
     public DateTimeOffset? CatalogueCheckedAt => UsesTwelveData ? refreshing?.Current.Manifest?.CheckedAt : null;
     public bool CatalogueRefreshFailed => UsesTwelveData && refreshing?.RefreshFailed == true;
+    // The reference directory is independent of the price provider. Yahoo needs
+    // its own ticker mapping, but must not lose the bundled worldwide listings.
+    private CompanySearchResult[] ListedCompanies => UsesTwelveData && refreshing is not null
+        ? refreshing.Current.Companies : savedCatalogue.Value;
     public CompanySearchResult[] AvailableCompanies(string? country = null, string? query = null) =>
-        (UsesTwelveData && refreshing is not null ? refreshing.Current.Companies : UsesManagedProvider ? savedCatalogue.Value : [])
+        ListedCompanies
         .Concat(UsesMarketstack ? MarketstackDataProvider.Popular : UsesTwelveData && refreshing?.Current.Manifest is null ? TwelveDataProvider.Popular : Array.Empty<CompanySearchResult>())
         .Concat(UsesMarketstack ? directory.Values : Enumerable.Empty<CompanySearchResult>())
         .Concat(UsesTwelveData && refreshing?.Current.Manifest is not null ? [] : available.Companies(Name)).DistinctBy(x => x.Symbol)
