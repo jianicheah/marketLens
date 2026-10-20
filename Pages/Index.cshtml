@@ -1,6 +1,7 @@
 @page
 @model MarketLens.Pages.IndexModel
 @using System.Globalization
+@using System.Text.Json
 @{ ViewData["Title"] = "Research"; }
 <div class="workspace">
     <div class="intro"><div><p class="eyebrow">YOUR MARKET WORKSPACE</p><h1>Evidence before action.</h1><p class="muted">Timeframe-specific signals with transparent rules and data checks.</p></div>
@@ -12,14 +13,14 @@
     @if (Model.Error is not null) { <aside class="notice">@Model.Error</aside> }
     <section class="panel signal-overview" aria-labelledby="signal-title">
         <div class="signal-heading"><div><p class="eyebrow">YOUR RESEARCH RADAR</p><h2 id="signal-title">Where the signals stand</h2><p class="muted">@Model.TotalCompanyCount listings accounted for · @Model.SignalStocks.Length saved histories analysed · weeks / months signals.</p></div></div>
-        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div><div class="signal-missing"><span>INSUFFICIENT HISTORY</span><strong>@Model.SignalCount("Insufficient data")</strong><small>Loaded history cannot support a signal</small></div><div class="signal-missing"><span>UNAVAILABLE / RESTRICTED</span><strong>@Model.UnavailableCount</strong><small>Recent failed checks; automatic retry</small></div><div class="signal-hold"><span>NOT CHECKED</span><strong>@Model.UncheckedCount</strong><small>No current history or recent failed check</small></div></div>
+        <div class="signal-totals"><div class="signal-buy"><span>BUY</span><strong>@Model.SignalCount("Buy")</strong><small>Rule-based candidates</small></div><div class="signal-sell"><span>SELL</span><strong>@Model.SignalCount("Sell")</strong><small>@(Model.OwnsStock ? "Review existing holdings" : "Avoid-entry signals")</small></div><div class="signal-hold"><span>HOLD</span><strong>@Model.SignalCount("Hold")</strong><small>No clear rule-based change</small></div></div>
         @if (Model.SignalStocks.Length == 0)
         { <p class="signal-empty">Automatic screening is starting. Results appear here as provider requests finish. If nothing appears, check the provider key and plan access.</p> }
         else
         {
             <p class="signal-axis">Price lines show up to 60 completed trading days, with a separate price scale for each stock. Green = Buy · red = Sell · grey = Hold. The percentage shows the price change over the displayed dates. Click a stock for detailed analysis.</p>
             <div class="signal-chart" role="list" aria-label="Cached stock research signals">
-            @foreach (var stock in Model.SignalStocks)
+            @foreach (var stock in Model.SignalStocks.Where(stock => stock.Signal is "Buy" or "Sell" or "Hold"))
             {
                 var tone = stock.Signal == "Buy" ? "signal-buy" : stock.Signal == "Sell" ? "signal-sell" : stock.Signal == "Hold" ? "signal-hold" : "signal-missing";
                 <a role="listitem" class="signal-row @tone" asp-page="/Index" asp-route-Symbol="@stock.Symbol" asp-route-Horizon="swing" asp-route-OwnsStock="@Model.OwnsStock" asp-fragment="stock-analysis" aria-label="@stock.Name: @stock.Signal. @stock.Summary">
@@ -122,8 +123,11 @@
                     var chartClass = change > 0 ? "positive" : change < 0 ? "negative" : "muted";
                     var chartDirection = change > 0 ? "Up" : change < 0 ? "Down" : "Unchanged";
                     var points = string.Join(" ", chart.Select((b,i) => $"{(i * 600m / (chart.Length - 1)).ToString("0.##", CultureInfo.InvariantCulture)},{(150m - (b.Close - min) / range * 130m).ToString("0.##", CultureInfo.InvariantCulture)}"));
+                    var hoverData = JsonSerializer.Serialize(chart.Select(b => new { date = MarketLens.Services.DataValidation.LocalTime(data.Symbol, b.Time).ToString("yyyy-MM-dd"), price = b.Close }));
                     <div class="chart-label"><span>Daily closing prices</span><span>@chart.Length bars · @data.Currency</span></div>
+                    <div class="interactive-chart" data-trend="@chartDirection.ToLowerInvariant()" data-chart="@hoverData" data-currency="@data.Currency" data-price-label="@(data.SplitAdjusted ? "Adjusted daily close" : "Daily close")" tabindex="0" role="group" aria-label="Interactive price chart. Use Left and Right arrow keys to explore daily prices.">
                     <svg class="price-chart" viewBox="0 0 600 180" role="img" aria-label="Daily closing price chart for @data.Name. @chartDirection over the displayed period."><path d="M0 40H600 M0 90H600 M0 140H600" stroke="#e8efed" fill="none" /><polyline points="@points" stroke="@chartColor" stroke-width="3" fill="none" /></svg>
+                    </div><p class="chart-help">Hover or touch the chart to see the date and closing price. Keyboard: ← / →.</p>
                     <p class="list-note @chartClass">@chartDirection @Math.Abs(changePercent).ToString("N2")% over the displayed period · last close versus first close</p>
                     <div class="chart-label"><span>@chart[0].Time.ToString("dd MMM yyyy")</span><span>@chart[^1].Time.ToString("dd MMM yyyy")</span></div>
                 }
@@ -133,7 +137,7 @@
             </section>
             <section class="panel analysis"><div class="panel-heading"><h2>Investment analysis</h2><span class="count">Rule-based baseline</span></div>
                 <form method="get" class="analysis-controls"><input type="hidden" name="Symbol" value="@data.Symbol" /><input type="hidden" name="Demo" value="@Model.Demo.ToString().ToLowerInvariant()" />@if (Model.DailyOnly) { <span>Timeframe: Weeks / months</span><input type="hidden" name="Horizon" value="swing" /> } else { <label for="horizon">Timeframe</label><select id="horizon" asp-for="Horizon"><option value="swing">Weeks / months</option><option value="long">Long-term</option></select> }<label class="check"><input asp-for="OwnsStock" /> I own this stock</label><label for="CostBps">Backtest cost per side (bps)</label><input asp-for="CostBps" type="number" min="0" max="100" step="0.1" /><button type="submit">Analyse</button></form>
-                <div class="assessment"><p class="eyebrow">@(data.IsSample ? "FICTIONAL DEMO SIGNAL" : "RESEARCH SIGNAL")</p><h3>@result.Signal</h3><p>@result.Summary</p><p class="spaced"><strong>@IndexModel.DisplaySource(result.Basis)</strong><br />@(Model.Horizon == "long" ? "Financial reporting period ended" : "Price bar timestamp used"): @IndexModel.DisplayTime(result.AsOf)</p><p class="list-note">@(Model.Horizon == "long" ? "Financial reporting date; current valuation uses a separate timestamp." : "Provider bar timestamp, which may mark the start of the daily session rather than its closing time. Quote and retrieval times are shown above.")</p></div>
+                <div class="assessment" data-signal="@result.Signal"><p class="eyebrow">@(data.IsSample ? "FICTIONAL DEMO SIGNAL" : "RESEARCH SIGNAL")</p><h3>@result.Signal</h3><p>@result.Summary</p><p class="spaced"><strong>@IndexModel.DisplaySource(result.Basis)</strong><br />@(Model.Horizon == "long" ? "Financial reporting period ended" : "Price bar timestamp used"): @IndexModel.DisplayTime(result.AsOf)</p><p class="list-note">@(Model.Horizon == "long" ? "Financial reporting date; current valuation uses a separate timestamp." : "Provider bar timestamp, which may mark the start of the daily session rather than its closing time. Quote and retrieval times are shown above.")</p></div>
                 <div class="metrics">@foreach (var metric in result.Metrics) { <div><span>@metric.Name</span><strong>@metric.Value</strong></div> }</div>
                 <div class="setup-panel"><h2>Why this result?</h2><ul>@foreach (var reason in result.Reasons) { <li>@reason</li> }</ul>
                     @if (result.StopReference is { } stop) { <p>ATR reference stop: <strong>@data.Currency @stop.ToString("N2")</strong> · Reference target: <strong>@data.Currency @result.TargetReference?.ToString("N2")</strong>. These levels are not used as orders in the backtest.</p> }
@@ -154,4 +158,4 @@
         </div>
     </div>
 </div>
-@section Scripts { <script src="~/js/company-loading.js" asp-append-version="true" defer></script><script src="~/js/favourites.js" asp-append-version="true" defer></script><script src="~/js/intraday-quote.js" asp-append-version="true" defer></script><script src="~/js/radar.js" asp-append-version="true" defer></script> }
+@section Scripts { <script src="~/js/chart-hover.js" asp-append-version="true" defer></script><script src="~/js/company-loading.js" asp-append-version="true" defer></script><script src="~/js/favourites.js" asp-append-version="true" defer></script><script src="~/js/intraday-quote.js" asp-append-version="true" defer></script><script src="~/js/radar.js" asp-append-version="true" defer></script> }

@@ -6,13 +6,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>@ViewData["Title"] · MarketLens</title>
+    <script src="~/js/theme.js" asp-append-version="true"></script>
     <link rel="icon" type="image/svg+xml" href="~/images/marketlens-mark.svg" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/gold-theme.css" asp-append-version="true" />
 </head>
 
 <body>
-    <header class="topbar"><a class="brand" asp-page="/Index" aria-label="MarketLens home"><img class="brand-logo" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" /></a>
-        <nav class="toplinks"><a asp-page="/Guide">User guide</a>@if (!Hosting.IsPublic || User.Identity?.IsAuthenticated
+    <header class="topbar"><a class="brand" asp-page="/Index" aria-label="MarketLens home"><img class="brand-logo logo-light" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" /><img class="brand-logo logo-dark" src="~/images/marketlens-logo-dark.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" /></a>
+        <nav class="toplinks" aria-label="Main navigation"><a asp-page="/Index" aria-current="@(Context.Request.Path == "/" ? "page" : null)">Research</a><a asp-page="/Guide" aria-current="@(Context.Request.Path == "/Guide" ? "page" : null)">User guide</a>@if (!Hosting.IsPublic || User.Identity?.IsAuthenticated
             == true) {
                 @* Retained for future use: <a asp-page="/Data">Manage data</a> *@
             } else
@@ -27,6 +29,7 @@
                       asp-page-handler="Logout"><button class="outline" type="submit">Sign out</button></form>
             }
         </nav>
+        <button type="button" class="theme-toggle" data-theme-toggle hidden aria-label="Switch colour theme"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="theme-icon-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></g><path class="theme-icon-moon" d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z"/></svg></button>
     </header>
     <aside class="analysis-disclaimer" aria-label="Analysis disclaimer"><strong>AI feature notice: This is AI analysis
         only.</strong><span>For information only; not financial advice. Signals use disclosed calculation rules. AI
@@ -34,7 +37,7 @@
         platform.</span></aside>
         <main>@RenderBody()</main>
         <footer class="site-footer">
-            <img class="footer-watermark" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" />
+            <img class="footer-watermark logo-light" src="~/images/marketlens-logo.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" /><img class="footer-watermark logo-dark" src="~/images/marketlens-logo-dark.svg" asp-append-version="true" width="280" height="64" alt="MarketLens" />
             <p>&copy; @DateTime.Now.Year MarketLens. All rights reserved.</p>
             <p>WHD-A08ACD2DF2E7</p>
         </footer>

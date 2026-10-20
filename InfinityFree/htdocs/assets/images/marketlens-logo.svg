@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="64" viewBox="0 0 280 64" fill="none" role="img" aria-labelledby="title">
+  <title id="title">MarketLens</title>
+  <rect width="64" height="64" rx="18" fill="#28271F"/>
+  <circle cx="29" cy="28" r="17" stroke="#F1CC64" stroke-width="3"/>
+  <path d="m41 41 11 11" stroke="#F1CC64" stroke-width="5" stroke-linecap="round"/>
+  <path d="M18 35V23l10 10 11-14v16" stroke="#F1CC64" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="39" cy="19" r="3" fill="#29E581"/>
+  <text x="80" y="42" fill="#956900" font-family="Segoe UI,Arial,sans-serif" font-size="32" font-weight="700" letter-spacing="-1.2">Market<tspan font-weight="400">Lens</tspan></text>
+</svg>

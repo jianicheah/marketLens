@@ -14,6 +14,7 @@ This standalone PHP 8.1+ deployment uses Yahoo Finance; it does not run the .NET
 ## What is ported
 
 - Searchable/paginated bundled stock and ETF catalogue, market filters, Yahoo company search, and direct market.ticker lookup.
+- Desktop stock browser beside the radar; filter/search/page requests update only the result region without reloading the selected analysis. Page controls sit above a scrollable stock list. Browser Back restores filters; failed requests retain previous results. Normal links/forms remain usable without JavaScript.
 - Yahoo daily history with currency and ticker validation, provider snapshot timestamps, completed-market-date filtering, adjustment factors, charts and explicit failures.
 - Browser favourites, ownership-aware Sell wording, weeks/months trend rules, long-term rules with matching annual statements and sector checks, JSON export, and next-open historical strategy checks with per-side costs.
 - Shared file caches, outbound request budget, provider backoff, session-cookie/token renewal after Yahoo 401/403, and CSRF protection for browser-triggered screening.

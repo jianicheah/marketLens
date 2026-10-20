@@ -1,6 +1,16 @@
 param([string]$OutputPath = (Join-Path $PSScriptRoot '../dist/MarketLens-InfinityFree.zip'))
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
+$imageFolder = Join-Path $projectRoot 'InfinityFree/htdocs/assets/images'
+New-Item -ItemType Directory -Path $imageFolder -Force | Out-Null
+foreach ($image in @('marketlens-logo.svg', 'marketlens-logo-dark.svg', 'marketlens-mark.svg')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot "wwwroot/images/$image") -Destination (Join-Path $imageFolder $image) -Force
+}
+Copy-Item -LiteralPath (Join-Path $projectRoot 'wwwroot/css/gold-theme.css') -Destination (Join-Path $projectRoot 'InfinityFree/htdocs/assets/gold-theme.css') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'wwwroot/js/theme.js') -Destination (Join-Path $projectRoot 'InfinityFree/htdocs/assets/theme.js') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'wwwroot/js/chart-hover.js') -Destination (Join-Path $projectRoot 'InfinityFree/htdocs/assets/chart-hover.js') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'wwwroot/js/catalogue-browser.js') -Destination (Join-Path $projectRoot 'InfinityFree/htdocs/assets/catalogue-browser.js') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'wwwroot/js/radar-pagination.js') -Destination (Join-Path $projectRoot 'InfinityFree/htdocs/assets/radar-pagination.js') -Force
 $catalogue = Get-Content -LiteralPath (Join-Path $projectRoot 'Catalogue/company-catalogue-twelvedata.json') -Raw | ConvertFrom-Json
 # Yahoo ticker conversion happens in PHP; Twelve Data's providerSymbol is never reused.
 $compact = @($catalogue | ForEach-Object {
