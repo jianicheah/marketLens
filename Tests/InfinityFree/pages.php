@@ -8,12 +8,22 @@ define('ML_STORAGE',$temp);
 register_shutdown_function(function()use($temp){ foreach(glob($temp.'/*')?:[] as $file) if(is_file($file)) unlink($file); rmdir($temp); });
 $readFixture=fn($name)=>json_decode(file_get_contents(__DIR__.'/../Fixtures/'.$name.'.json'),true,512,JSON_THROW_ON_ERROR);
 $data=Yahoo::parseChart($readFixture('yahoo-aapl'),'US.AAPL',1791547200);
+$mode=$argv[1]??'browse';
+if(in_array($mode,['owns','non-owner'],true)) {
+ // Recent declining history exercises the Sell wording without contacting Yahoo.
+ $data['bars']=[]; $data['adjusted']=true;
+ for($i=0;$i<120;$i++) {
+  $time=strtotime('yesterday UTC')-(119-$i)*86400; $close=150-$i*0.2;
+  $data['bars'][]=['time'=>$time,'date'=>gmdate('Y-m-d',$time),'open'=>$close,'high'=>$close+0.5,'low'=>$close-0.5,'close'=>$close,'volume'=>100000];
+ }
+}
 foreach(['history:US.AAPL'=>$data,'fundamentals:US.AAPL'=>['assetProfile'=>['sector'=>'Technology']],'statements:US.AAPL'=>$readFixture('yahoo-fundamentals')] as $key=>$value) file_put_contents($temp.'/'.hash('sha256',$key).'.json',json_encode($value,JSON_THROW_ON_ERROR));
 $mode=$argv[1]??'browse';
 $_SERVER['REQUEST_METHOD']='GET';
 if($mode==='browse') $_GET=['q'=>'Maybank','market'=>'MY'];
 elseif($mode==='export') $_GET=['symbol'=>'US.AAPL','action'=>'export'];
 elseif($mode==='long') $_GET=['symbol'=>'US.AAPL','horizon'=>'long'];
+elseif(in_array($mode,['owns','non-owner'],true)) $_GET=['symbol'=>'US.AAPL','horizon'=>'swing','owns'=>$mode==='owns'?'1':'0','cost'=>'10'];
 elseif($mode==='csrf') { $_GET=['action'=>'screen']; $_SERVER['REQUEST_METHOD']='POST'; }
 elseif($mode==='catalogue') $_GET=['action'=>'catalogue','market'=>'KR','page'=>'2','symbol'=>'US.AAPL'];
 elseif(str_starts_with($mode,'radar-page')) {
@@ -49,6 +59,13 @@ if(str_starts_with($mode,'radar-page')) {
   $j=json_decode($body,true,512,JSON_THROW_ON_ERROR);
   if(($j['page']??0)!==2||($j['market']??'')!=='KR'||!str_contains($j['html']??'','KR.')||str_contains($j['html'],'<main>')) throw new RuntimeException('Catalogue response did not contain only the requested result page');
   return "PASS: partial catalogue page works without cURL or reloading selected stock data\n";
+ });
+} elseif(in_array($mode,['owns','non-owner'],true)) {
+ ob_start(function($body)use($mode){
+  $owner=$mode==='owns';
+  $expected=$owner?'Review reducing your existing holding after considering risks.':'Avoid-entry signal; this is not a short-sale instruction.';
+  if(!str_contains($body,'data-signal="Sell"')||!str_contains($body,$expected)||!str_contains($body,'name="owns" value="1" '.($owner?'checked':''))) throw new RuntimeException('Ownership analysis failed');
+  return 'PASS: '.$mode." analysis renders Sell with the correct ownership wording\n";
  });
 } elseif($mode==='export') {
  ob_start(function($body){
